@@ -12,7 +12,7 @@ jobs:
 
     # ✅ Use Playwright’s official container (already has browsers + deps)
     container:
-      image: mcr.microsoft.com/playwright:v1.47.2-jammy # pin a tested version
+      image: mcr.microsoft.com/playwright:v1.56.0-jammy # pin a tested version
 
     steps:
       - name: Checkout repository

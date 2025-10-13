@@ -1,8 +1,8 @@
 name: Playwright Tests
 on:
   schedule:
-    # Run every day at 14:23 UTC
-    - cron: "23 14 * * *"
+    # Run every day at 01:26 UTC
+    - cron: "01 26 * * *"
 jobs:
   test:
     timeout-minutes: 60

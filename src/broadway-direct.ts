@@ -36,6 +36,20 @@ export async function broadwayDirect({ browser, userInfo, url }) {
     // Agree to terms
     await page.locator("#dlslot_agree").check({ force: true });
 
+    // Set up error logging before form submission
+    // Log JavaScript console errors
+    page.on("console", (msg) => {
+      const type = msg.type();
+      if (type === "error") {
+        console.log(`🔴 Console error: ${msg.text()}`);
+      }
+    });
+
+    // Log page errors
+    page.on("pageerror", (error) => {
+      console.log(`🔴 Page error: ${error.message}`);
+    });
+
     // Handle cookie consent banner if present
     const cookieBanner = page.locator("#cookie-information-template-wrapper");
     const isCookieBannerVisible = await cookieBanner.isVisible().catch(() => false);
@@ -58,16 +72,39 @@ export async function broadwayDirect({ browser, userInfo, url }) {
     const enterButton = page.getByLabel("Enter");
     const formUrl = page.url();
 
+    // Check if form is valid before submission
+    const form = page.locator("form").first();
+    const isFormValid = await form.evaluate((formEl) => {
+      return (formEl as HTMLFormElement).checkValidity();
+    }).catch(() => true); // If we can't check, assume it's valid
+
+    if (!isFormValid) {
+      console.warn("⚠️  Form validation failed - form may not submit");
+    }
+
+    // Check if button is disabled or not clickable
+    const isButtonDisabled = await enterButton.isDisabled().catch(() => false);
+    const isButtonVisible = await enterButton.isVisible().catch(() => false);
+    
+    if (isButtonDisabled) {
+      console.warn("⚠️  Enter button is disabled - form may not submit");
+    }
+    if (!isButtonVisible) {
+      console.warn("⚠️  Enter button is not visible - form may not submit");
+    }
+
     // Log all non-GET requests to help debug what's happening
     page.on("response", (response) => {
       const method = response.request().method();
       const status = response.status();
       const url = response.url();
       const isStaticAsset = url.match(/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|ico)$/i);
+      const isGoogleAnalytics = url.includes("google-analytics.com") || url.includes("googletagmanager.com");
       
       if (
         (method === "POST" || method === "PUT" || method === "PATCH") &&
-        !isStaticAsset
+        !isStaticAsset &&
+        !isGoogleAnalytics
       ) {
         console.log(
           `🌐 ${method} ${status} ${url}`
@@ -75,27 +112,51 @@ export async function broadwayDirect({ browser, userInfo, url }) {
       }
     });
 
-    // Set up waiting for any POST/PUT/PATCH response (form submissions)
-    // This catches the actual form submission regardless of URL pattern
+    // Set up waiting for the actual form submission response
+    // Exclude Google Analytics and other tracking requests
     const formSubmissionPromise = page
       .waitForResponse(
-        (response) => {
+        async (response) => {
           const method = response.request().method();
           const status = response.status();
-          // Only catch POST/PUT/PATCH requests with successful status
-          // Exclude static assets
           const url = response.url();
+          
+          // Exclude static assets
           const isStaticAsset = url.match(/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|ico)$/i);
+          
+          // Exclude Google Analytics and other tracking services
+          const isTracking = 
+            url.includes("google-analytics.com") ||
+            url.includes("googletagmanager.com") ||
+            url.includes("doubleclick.net") ||
+            url.includes("googleadservices.com") ||
+            url.includes("facebook.com/tr") ||
+            url.includes("analytics");
+          
+          // Look for actual form submission endpoints
+          // Any POST/PUT/PATCH to broadwaydirect.com (excluding tracking) is likely the form submission
           const isFormSubmission =
             (method === "POST" || method === "PUT" || method === "PATCH") &&
             status >= 200 &&
             status < 400 &&
-            !isStaticAsset;
+            !isStaticAsset &&
+            !isTracking &&
+            url.includes("broadwaydirect.com");
 
           if (isFormSubmission) {
             console.log(
               `📡 Form submission response: ${method} ${status} ${url}`
             );
+            
+            // Try to get response body for debugging
+            try {
+              const body = await response.text();
+              if (body) {
+                console.log(`📄 Response body preview: ${body.substring(0, 200)}`);
+              }
+            } catch (e) {
+              // Response body might not be available, ignore
+            }
           }
 
           return isFormSubmission;
@@ -104,11 +165,26 @@ export async function broadwayDirect({ browser, userInfo, url }) {
       )
       .catch(() => null);
 
+    // Wait a bit to ensure form is ready
+    await page.waitForTimeout(500);
+    
     try {
+      // Scroll button into view if needed
+      await enterButton.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(200);
+      
       await enterButton.click({ timeout: 10000 });
+      console.log("✅ Enter button clicked");
     } catch (error) {
+      console.warn(`⚠️  Initial click failed: ${error.message}`);
       // If click fails due to interception, force the click
-      await enterButton.click({ force: true });
+      try {
+        await enterButton.click({ force: true });
+        console.log("✅ Enter button clicked (forced)");
+      } catch (forceError) {
+        console.error(`❌ Failed to click enter button: ${forceError.message}`);
+        throw forceError;
+      }
     }
 
     // Wait for form submission response
@@ -117,8 +193,24 @@ export async function broadwayDirect({ browser, userInfo, url }) {
       console.log(
         `✅ Form submission completed: ${response.request().method()} ${response.status()} ${response.url()}`
       );
+      
+      // Check response body for success/error indicators
+      try {
+        const responseBody = await response.text();
+        if (responseBody) {
+          const lowerBody = responseBody.toLowerCase();
+          if (lowerBody.includes("error") || lowerBody.includes("invalid") || lowerBody.includes("failed")) {
+            console.warn(`⚠️  Response body suggests error: ${responseBody.substring(0, 300)}`);
+          } else if (lowerBody.includes("success") || lowerBody.includes("entered") || lowerBody.includes("thank")) {
+            console.log(`✅ Response body suggests success`);
+          }
+        }
+      } catch (e) {
+        // Response body might not be readable, ignore
+      }
     } else {
       console.warn(`⚠️  No form submission response detected within timeout`);
+      console.warn(`⚠️  This may indicate the form did not submit properly`);
     }
     
     // Wait for network to be idle to ensure all requests complete
@@ -129,14 +221,20 @@ export async function broadwayDirect({ browser, userInfo, url }) {
 
     // Check for success indicators
     const successIndicators = [
-      page.getByText(/success|thank you|entered|submitted|you're entered|you are entered/i),
-      page.locator('[class*="success"], [class*="alert-success"]'),
+      page.getByText(/success|thank you|entered|submitted|you're entered|you are entered|entry received/i),
+      page.locator('[class*="success"], [class*="alert-success"], [id*="success"]'),
     ];
 
     const hasSuccessIndicator = await Promise.race(
       successIndicators.map(async (indicator) => {
         try {
-          return await indicator.first().isVisible({ timeout: 3000 });
+          const element = await indicator.first();
+          const isVisible = await element.isVisible({ timeout: 3000 });
+          if (isVisible) {
+            const text = await element.textContent().catch(() => "");
+            console.log(`✅ Success indicator found: ${text?.substring(0, 100)}`);
+          }
+          return isVisible;
         } catch {
           return false;
         }
@@ -145,19 +243,35 @@ export async function broadwayDirect({ browser, userInfo, url }) {
 
     // Check for error messages
     const errorIndicators = [
-      page.locator('[class*="error"], [class*="alert-danger"], [role="alert"]'),
-      page.getByText(/error|invalid|failed|try again/i),
+      page.locator('[class*="error"], [class*="alert-danger"], [role="alert"], [id*="error"]'),
+      page.getByText(/error|invalid|failed|try again|already entered|duplicate/i),
     ];
 
     const hasErrorIndicator = await Promise.race(
       errorIndicators.map(async (indicator) => {
         try {
-          return await indicator.first().isVisible({ timeout: 2000 });
+          const element = await indicator.first();
+          const isVisible = await element.isVisible({ timeout: 2000 });
+          if (isVisible) {
+            const text = await element.textContent().catch(() => "");
+            console.warn(`⚠️  Error indicator found: ${text?.substring(0, 100)}`);
+          }
+          return isVisible;
         } catch {
           return false;
         }
       })
     ).catch(() => false);
+    
+    // Also check page content for any messages
+    const pageContent = await page.content();
+    const pageText = await page.textContent("body").catch(() => "");
+    if (pageText) {
+      const lowerText = pageText.toLowerCase();
+      if (lowerText.includes("already entered") || lowerText.includes("duplicate entry")) {
+        console.warn(`⚠️  Page content suggests duplicate entry`);
+      }
+    }
 
     // Log warnings if submission appears to have failed
     const currentUrl = page.url();

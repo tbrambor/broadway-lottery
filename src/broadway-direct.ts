@@ -4,6 +4,169 @@ export type LotteryResult = {
   reason?: "closed" | "no_entries" | "submitted" | "failed" | "error";
 };
 
+/**
+ * Comprehensive cookie consent handler
+ * Handles both persistent banners and cookie consent within modals
+ */
+async function handleCookieConsent(page: any): Promise<void> {
+  console.log("🍪 Checking for cookie consent banners...");
+  
+  // Strategy 1: Look for "ACCEPT AND CONTINUE" or "ACCEPT" buttons by text
+  const acceptButtonSelectors = [
+    'button:has-text("ACCEPT AND CONTINUE")',
+    'button:has-text("Accept and Continue")',
+    'button:has-text("ACCEPT")',
+    'button:has-text("Accept")',
+    '[role="button"]:has-text("ACCEPT AND CONTINUE")',
+    '[role="button"]:has-text("Accept and Continue")',
+    'a:has-text("ACCEPT AND CONTINUE")',
+    'a:has-text("Accept and Continue")',
+  ];
+  
+  for (const selector of acceptButtonSelectors) {
+    try {
+      const button = page.locator(selector).first();
+      const isVisible = await button.isVisible({ timeout: 1000 }).catch(() => false);
+      if (isVisible) {
+        await button.click({ force: true, timeout: 2000 });
+        console.log(`✅ Clicked cookie accept button: ${selector}`);
+        await page.waitForTimeout(500);
+        // Check if it worked
+        const stillVisible = await button.isVisible({ timeout: 500 }).catch(() => false);
+        if (!stillVisible) {
+          return; // Successfully dismissed
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  
+  // Strategy 2: Look for cookie consent banners by common selectors
+  const cookieBannerSelectors = [
+    '#cookie-information-template-wrapper',
+    '[id*="cookie"]',
+    '[class*="cookie"]',
+    '[class*="Cookie"]',
+    '[class*="cookie-consent"]',
+    '[class*="CookieConsent"]',
+    '[role="dialog"]:has-text("cookie")',
+    '[role="dialog"]:has-text("Cookie")',
+  ];
+  
+  for (const bannerSelector of cookieBannerSelectors) {
+    try {
+      const banner = page.locator(bannerSelector).first();
+      const isVisible = await banner.isVisible({ timeout: 1000 }).catch(() => false);
+      if (isVisible) {
+        console.log(`🍪 Found cookie banner: ${bannerSelector}`);
+        
+        // Try to find accept/continue button within the banner
+        const acceptButton = banner.getByRole("button", { 
+          name: /accept|continue|agree|ok|got it/i 
+        }).first();
+        const acceptVisible = await acceptButton.isVisible({ timeout: 1000 }).catch(() => false);
+        
+        if (acceptVisible) {
+          await acceptButton.click({ force: true, timeout: 2000 });
+          console.log(`✅ Clicked accept button in cookie banner`);
+          await page.waitForTimeout(500);
+        } else {
+          // Try to find any button in the banner
+          const anyButton = banner.locator("button").first();
+          const buttonVisible = await anyButton.isVisible({ timeout: 1000 }).catch(() => false);
+          if (buttonVisible) {
+            const buttonText = await anyButton.textContent().catch(() => "");
+            // Prefer "ACCEPT" over "DECLINE"
+            if (buttonText && /accept|continue/i.test(buttonText)) {
+              await anyButton.click({ force: true, timeout: 2000 });
+              console.log(`✅ Clicked button in cookie banner: ${buttonText}`);
+              await page.waitForTimeout(500);
+            }
+          }
+        }
+        
+        // Check if banner is now hidden
+        const stillVisible = await banner.isVisible({ timeout: 500 }).catch(() => false);
+        if (!stillVisible) {
+          console.log("✅ Cookie banner dismissed");
+          return;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  
+  // Strategy 3: Look for cookie consent text and find nearby buttons
+  try {
+    const cookieText = page.getByText(/cookie|Cookie/, { exact: false }).first();
+    const isVisible = await cookieText.isVisible({ timeout: 1000 }).catch(() => false);
+    if (isVisible) {
+      // Find the closest button to the cookie text
+      const parent = cookieText.locator("..").first();
+      const acceptButton = parent.getByRole("button", { 
+        name: /accept|continue|agree/i 
+      }).first();
+      const acceptVisible = await acceptButton.isVisible({ timeout: 1000 }).catch(() => false);
+      if (acceptVisible) {
+        await acceptButton.click({ force: true, timeout: 2000 });
+        console.log("✅ Clicked accept button near cookie text");
+        await page.waitForTimeout(500);
+        return;
+      }
+    }
+  } catch {
+    // Continue to next strategy
+  }
+  
+  // Strategy 4: Force hide all cookie-related elements via JavaScript
+  try {
+    await page.evaluate(() => {
+      // Hide all cookie banners
+      const cookieSelectors = [
+        '#cookie-information-template-wrapper',
+        '[id*="cookie"]',
+        '[class*="cookie"]',
+        '[class*="Cookie"]',
+      ];
+      
+      cookieSelectors.forEach((selector) => {
+        try {
+          const elements = document.querySelectorAll(selector);
+          elements.forEach((el) => {
+            (el as HTMLElement).style.display = 'none';
+            (el as HTMLElement).style.visibility = 'hidden';
+            (el as HTMLElement).style.opacity = '0';
+            (el as HTMLElement).style.pointerEvents = 'none';
+            el.remove();
+          });
+        } catch {
+          // Ignore
+        }
+      });
+      
+      // Also remove any elements with cookie-related text
+      const allElements = document.querySelectorAll('*');
+      allElements.forEach((el) => {
+        const text = el.textContent?.toLowerCase() || '';
+        if (text.includes('cookie') && text.includes('consent')) {
+          const parent = el.closest('[class*="banner"], [class*="modal"], [class*="dialog"], [id*="cookie"]');
+          if (parent) {
+            (parent as HTMLElement).style.display = 'none';
+            (parent as HTMLElement).style.visibility = 'hidden';
+            (parent as HTMLElement).style.pointerEvents = 'none';
+          }
+        }
+      });
+    });
+    console.log("✅ Force-hid cookie consent elements via JavaScript");
+    await page.waitForTimeout(300);
+  } catch (e) {
+    console.warn("⚠️  Could not force-hide cookie elements");
+  }
+}
+
 export async function broadwayDirect({ browser, userInfo, url }): Promise<LotteryResult> {
   const page = await browser.newPage();
 
@@ -160,54 +323,14 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
       
       try {
         // Always dismiss cookie banner first (it can reappear)
-        const cookieBanner = page.locator("#cookie-information-template-wrapper");
-        const isCookieBannerVisible = await cookieBanner.isVisible().catch(() => false);
-        if (isCookieBannerVisible) {
-          console.log("🍪 Dismissing cookie banner before clicking entry trigger...");
-          // Try clicking accept button first
-          try {
-            const acceptButton = cookieBanner.getByRole("button", { name: /accept|agree|ok|got it|continue/i });
-            if (await acceptButton.isVisible({ timeout: 1000 }).catch(() => false)) {
-              await acceptButton.click({ force: true });
-              await page.waitForTimeout(300);
-            }
-          } catch {
-            // Continue to force hide
-          }
-          
-          // Force hide via JavaScript
-          await page.evaluate(() => {
-            const banner = document.getElementById("cookie-information-template-wrapper");
-            if (banner) {
-              banner.style.display = "none";
-              banner.style.visibility = "hidden";
-              banner.style.opacity = "0";
-              banner.style.pointerEvents = "none";
-              banner.remove();
-            }
-          });
-          await page.waitForTimeout(300);
-        }
+        await handleCookieConsent(page);
         
         // Scroll into view and click to open modal
         await trigger.scrollIntoViewIfNeeded();
         await page.waitForTimeout(300);
         
         // Dismiss cookie banner again right before clicking (it might have reappeared)
-        const cookieBannerStillVisible = await cookieBanner.isVisible().catch(() => false);
-        if (cookieBannerStillVisible) {
-          await page.evaluate(() => {
-            const banner = document.getElementById("cookie-information-template-wrapper");
-            if (banner) {
-              banner.style.display = "none";
-              banner.style.visibility = "hidden";
-              banner.style.opacity = "0";
-              banner.style.pointerEvents = "none";
-              banner.remove();
-            }
-          });
-          await page.waitForTimeout(200);
-        }
+        await handleCookieConsent(page);
         
         // Get the href before clicking (in case it's a link that navigates)
         const triggerHref = await trigger.getAttribute("href").catch(() => null);
@@ -298,6 +421,9 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
         } else if (urlChanged) {
           console.log(`✅ Navigated to form page: ${currentUrl}`);
         }
+        
+        // Handle cookie consent that might appear in the modal
+        await handleCookieConsent(page);
       } catch (error) {
         console.warn(`⚠️  Failed to open modal with trigger ${i + 1}: ${error.message}`);
         // Fall back to href navigation
@@ -309,18 +435,18 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
       }
       
       // Now check if form is available (either in modal or on page)
-    const formPageText = await page.textContent("body").catch(() => "");
-    const lowerFormText = (formPageText || "").toLowerCase();
-    
-    const isFormPageClosed = 
-      lowerFormText.includes("lottery is closed") ||
-      lowerFormText.includes("lottery has closed") ||
-      lowerFormText.includes("no longer accepting entries") ||
-      lowerFormText.includes("entries are closed") ||
-      lowerFormText.includes("lottery closed") ||
-      lowerFormText.includes("entry period has ended");
+      const formPageText = await page.textContent("body").catch(() => "");
+      const lowerFormText = (formPageText || "").toLowerCase();
+      
+      const isFormPageClosed = 
+        lowerFormText.includes("lottery is closed") ||
+        lowerFormText.includes("lottery has closed") ||
+        lowerFormText.includes("no longer accepting entries") ||
+        lowerFormText.includes("entries are closed") ||
+        lowerFormText.includes("lottery closed") ||
+        lowerFormText.includes("entry period has ended");
 
-    if (isFormPageClosed) {
+      if (isFormPageClosed) {
         console.log("ℹ️  Lottery is closed - skipping entry");
         // Close modal if open
         try {
@@ -329,15 +455,15 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
         } catch {
           // Ignore
         }
-      continue;
-    }
+        continue;
+      }
 
       // Check if form fields are available
-    const firstNameField = page.getByLabel("First Name");
-    const isFormAvailable = await firstNameField.isVisible({ timeout: 5000 }).catch(() => false);
-    
-    if (!isFormAvailable) {
-      console.log("ℹ️  Form is not available - lottery may be closed");
+      const firstNameField = page.getByLabel("First Name");
+      const isFormAvailable = await firstNameField.isVisible({ timeout: 5000 }).catch(() => false);
+      
+      if (!isFormAvailable) {
+        console.log("ℹ️  Form is not available - lottery may be closed");
         // Close modal if open
         try {
           const closeButton = page.locator('[aria-label*="close"], .modal-close, [class*="close"]').first();
@@ -345,12 +471,15 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
         } catch {
           // Ignore
         }
-      continue;
-    }
+        continue;
+      }
 
-    // If we get here, we found an open entry form
-    allEntriesClosed = false;
-    attemptedSubmissions++;
+      // If we get here, we found an open entry form
+      allEntriesClosed = false;
+      attemptedSubmissions++;
+      
+      // Handle cookie consent that might appear in the modal (do this after form is visible)
+      await handleCookieConsent(page);
 
     await firstNameField.waitFor({ timeout: 30000 });
     await page.getByLabel("First Name").fill(userInfo.firstName);
@@ -388,78 +517,7 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
     });
 
       // Handle cookie consent banner if present - do this more aggressively
-    const cookieBanner = page.locator("#cookie-information-template-wrapper");
-    const isCookieBannerVisible = await cookieBanner.isVisible().catch(() => false);
-    if (isCookieBannerVisible) {
-        console.log("🍪 Cookie banner detected - attempting to dismiss");
-        // Try multiple strategies to dismiss the cookie banner
-        try {
-          // Strategy 1: Find and click an accept/agree button within the cookie banner
-          const acceptButton = cookieBanner.getByRole("button", { name: /accept|agree|ok|got it|continue/i });
-          const acceptButtonVisible = await acceptButton.isVisible({ timeout: 2000 }).catch(() => false);
-      if (acceptButtonVisible) {
-            await acceptButton.click({ force: true });
-            console.log("✅ Clicked cookie banner accept button");
-          }
-        } catch (e) {
-          // Strategy 2: Try clicking any button in the cookie banner
-          try {
-            const anyButton = cookieBanner.locator("button").first();
-            if (await anyButton.isVisible({ timeout: 1000 }).catch(() => false)) {
-              await anyButton.click({ force: true });
-              console.log("✅ Clicked cookie banner button");
-            }
-          } catch (e2) {
-            // Strategy 3: Try clicking a link in the cookie banner
-            try {
-              const anyLink = cookieBanner.locator("a").first();
-              if (await anyLink.isVisible({ timeout: 1000 }).catch(() => false)) {
-                await anyLink.click({ force: true });
-                console.log("✅ Clicked cookie banner link");
-              }
-            } catch (e3) {
-              // Strategy 4: Try to hide it via JavaScript
-              try {
-                await page.evaluate(() => {
-                  const banner = document.getElementById("cookie-information-template-wrapper");
-                  if (banner) {
-                    banner.style.display = "none";
-                    banner.remove();
-                  }
-                });
-                console.log("✅ Removed cookie banner via JavaScript");
-              } catch (e4) {
-                console.warn("⚠️  Could not dismiss cookie banner");
-              }
-            }
-          }
-        }
-        
-        // Wait for banner to disappear or be hidden
-        try {
-          await cookieBanner.waitFor({ state: "hidden", timeout: 3000 });
-          console.log("✅ Cookie banner is now hidden");
-        } catch {
-          // Try to verify it's actually gone by checking visibility
-          const stillVisible = await cookieBanner.isVisible().catch(() => false);
-          if (stillVisible) {
-            // Force hide it via JavaScript
-            await page.evaluate(() => {
-              const banner = document.getElementById("cookie-information-template-wrapper");
-              if (banner) {
-                banner.style.display = "none";
-                banner.style.visibility = "hidden";
-                banner.style.opacity = "0";
-                banner.style.pointerEvents = "none";
-              }
-            });
-            console.log("✅ Force-hid cookie banner via JavaScript");
-          }
-        }
-        
-        // Wait a bit for any animations to complete
-        await page.waitForTimeout(500);
-      }
+      await handleCookieConsent(page);
 
       // Check for and handle reCAPTCHA if present
       const recaptchaSelectors = [
@@ -746,60 +804,15 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
     
       // Aggressively dismiss cookie banner right before clicking Enter button
       // The cookie banner can reappear or persist, so we need to be very aggressive
-      const cookieBannerStillVisible = await cookieBanner.isVisible().catch(() => false);
-      if (cookieBannerStillVisible) {
-        console.log("🍪 Cookie banner still visible - force dismissing before Enter button click...");
-        // Try clicking accept button first
-        try {
-          const acceptButton = cookieBanner.getByRole("button", { name: /accept|agree|ok|got it|continue/i });
-          if (await acceptButton.isVisible({ timeout: 1000 }).catch(() => false)) {
-            await acceptButton.click({ force: true });
-            await page.waitForTimeout(200);
-          }
-        } catch {
-          // Continue to force hide
-        }
-        
-        // Force hide via JavaScript - be very aggressive
-        await page.evaluate(() => {
-          const banner = document.getElementById("cookie-information-template-wrapper");
-          if (banner) {
-            banner.style.display = "none";
-            banner.style.visibility = "hidden";
-            banner.style.opacity = "0";
-            banner.style.pointerEvents = "none";
-            banner.remove();
-          }
-          // Also remove any other cookie-related elements
-          const cookieElements = document.querySelectorAll('[id*="cookie"], [class*="cookie"]');
-          cookieElements.forEach((el) => {
-            (el as HTMLElement).style.pointerEvents = "none";
-            (el as HTMLElement).style.display = "none";
-          });
-        });
-        await page.waitForTimeout(300);
-      }
+      await handleCookieConsent(page);
       
       // Always use force click since cookie banner is known to intercept
       // Scroll button into view if needed
       await enterButton.scrollIntoViewIfNeeded();
       await page.waitForTimeout(200);
       
-      // Dismiss cookie banner one more time right before click
-      const cookieBannerFinalCheck = await cookieBanner.isVisible().catch(() => false);
-      if (cookieBannerFinalCheck) {
-        await page.evaluate(() => {
-          const banner = document.getElementById("cookie-information-template-wrapper");
-          if (banner) {
-            banner.style.display = "none";
-            banner.style.visibility = "hidden";
-            banner.style.opacity = "0";
-            banner.style.pointerEvents = "none";
-            banner.remove();
-          }
-        });
-        await page.waitForTimeout(200);
-      }
+      // Dismiss cookie banner one more time right before click (it might have reappeared)
+      await handleCookieConsent(page);
       
       try {
         // Use force click from the start to bypass cookie banner interception
@@ -1219,30 +1232,7 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
       });
 
       // Handle cookie consent banner if present
-      const cookieBanner = page.locator("#cookie-information-template-wrapper");
-      const isCookieBannerVisible = await cookieBanner.isVisible().catch(() => false);
-      if (isCookieBannerVisible) {
-        console.log("🍪 Cookie banner detected - attempting to dismiss");
-        try {
-          const acceptButton = cookieBanner.getByRole("button", { name: /accept|agree|ok|got it|continue/i });
-          const acceptButtonVisible = await acceptButton.isVisible({ timeout: 2000 }).catch(() => false);
-          if (acceptButtonVisible) {
-            await acceptButton.click({ force: true });
-            console.log("✅ Clicked cookie banner accept button");
-          }
-        } catch (e) {
-          await page.evaluate(() => {
-            const banner = document.getElementById("cookie-information-template-wrapper");
-            if (banner) {
-              banner.style.display = "none";
-              banner.style.visibility = "hidden";
-              banner.style.opacity = "0";
-              banner.style.pointerEvents = "none";
-            }
-          });
-        }
-        await page.waitForTimeout(500);
-      }
+      await handleCookieConsent(page);
 
       // Check for and handle reCAPTCHA if present (same logic as modal approach)
       const recaptchaSelectors = [
@@ -1444,20 +1434,8 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
 
       await page.waitForTimeout(500);
       
-      const cookieBannerStillVisible = await cookieBanner.isVisible().catch(() => false);
-      if (cookieBannerStillVisible) {
-        await page.evaluate(() => {
-          const banner = document.getElementById("cookie-information-template-wrapper");
-          if (banner) {
-            banner.style.display = "none";
-            banner.style.visibility = "hidden";
-            banner.style.opacity = "0";
-            banner.style.pointerEvents = "none";
-            banner.remove();
-          }
-        });
-        await page.waitForTimeout(300);
-      }
+      // Dismiss cookie banner again before clicking (it might have reappeared)
+      await handleCookieConsent(page);
       
       try {
         await enterButton.scrollIntoViewIfNeeded();

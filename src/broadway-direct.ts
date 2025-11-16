@@ -66,26 +66,52 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
   let attemptedSubmissions = 0;
 
   // Try to find "Enter Now" buttons/links on the current page (they may open modals)
-  // Filter to only get buttons that say "Enter Now" (not "Closed" or "Upcoming")
+  // Based on the HTML, these are links with class "enter-lottery-link" or "enter-button"
+  // They have hrefs like: /enter-lottery/?lottery=XXX&window=popup
+  
+  // Strategy 1: Find by CSS class (most reliable)
+  const enterLotteryLinks = await page.locator('a.enter-lottery-link, a.enter-button').all().catch(() => []);
+  
+  // Strategy 2: Find by role and name
   const enterNowButtons = await page.getByRole("button", { name: /Enter Now/i }).all().catch(() => []);
   const enterNowLinks = await page.getByRole("link", { name: /Enter Now/i }).all().catch(() => []);
-  const allEnterNowElements = [...enterNowButtons, ...enterNowLinks];
   
-  // Filter out any buttons that are disabled or have "Closed" or "Upcoming" text
+  // Strategy 3: Find links with "Enter" text that aren't disabled
+  const enterLinksByText = await page.locator('a:has-text("Enter")').all().catch(() => []);
+  
+  // Combine all potential elements
+  const allEnterNowElements = [...enterLotteryLinks, ...enterNowButtons, ...enterNowLinks, ...enterLinksByText];
+  
+  // Filter out any buttons/links that are disabled or have "Closed" or "Upcoming" text
   const filteredEnterNowElements = [];
   for (const element of allEnterNowElements) {
     try {
       const text = await element.textContent().catch(() => "");
+      const href = await element.getAttribute("href").catch(() => "");
+      const classes = await element.getAttribute("class").catch(() => "");
       const isDisabled = await element.isDisabled().catch(() => false);
+      const ariaDisabled = await element.getAttribute("aria-disabled").catch(() => null);
       const isVisible = await element.isVisible().catch(() => false);
       
-      // Only include if it's visible, enabled, and contains "Enter Now" (case insensitive)
-      if (isVisible && !isDisabled && text && /Enter Now/i.test(text)) {
+      // Check if it's disabled
+      const disabled = isDisabled || ariaDisabled === "true";
+      
+      // Check if it's a closed/upcoming button by class or text
+      const isClosed = classes?.includes("closed-button") || classes?.includes("upcoming-button") || 
+                       classes?.includes("dlslot-disabled") ||
+                       text?.toLowerCase().includes("closed") || 
+                       text?.toLowerCase().includes("upcoming");
+      
+      // Check if href contains enter-lottery (indicates it's an active entry link)
+      const isEntryLink = href?.includes("enter-lottery") || classes?.includes("enter-lottery-link");
+      
+      // Only include if it's visible, not disabled, and is an entry link (or contains "Enter")
+      if (isVisible && !disabled && !isClosed && (isEntryLink || (text && /Enter/i.test(text)))) {
         filteredEnterNowElements.push(element);
       }
     } catch {
-      // If we can't check, include it anyway (better to try than skip)
-      filteredEnterNowElements.push(element);
+      // If we can't check, skip it to avoid false positives
+      continue;
     }
   }
   
@@ -133,14 +159,23 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
       console.log(`\n📝 Processing entry ${i + 1} of ${entryTriggers.length}...`);
       
       try {
-        // Scroll into view and click to open modal
-        await trigger.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(300);
-        
-        // Handle cookie banner before clicking
+        // Always dismiss cookie banner first (it can reappear)
         const cookieBanner = page.locator("#cookie-information-template-wrapper");
         const isCookieBannerVisible = await cookieBanner.isVisible().catch(() => false);
         if (isCookieBannerVisible) {
+          console.log("🍪 Dismissing cookie banner before clicking entry trigger...");
+          // Try clicking accept button first
+          try {
+            const acceptButton = cookieBanner.getByRole("button", { name: /accept|agree|ok|got it|continue/i });
+            if (await acceptButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+              await acceptButton.click({ force: true });
+              await page.waitForTimeout(300);
+            }
+          } catch {
+            // Continue to force hide
+          }
+          
+          // Force hide via JavaScript
           await page.evaluate(() => {
             const banner = document.getElementById("cookie-information-template-wrapper");
             if (banner) {
@@ -148,23 +183,69 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
               banner.style.visibility = "hidden";
               banner.style.opacity = "0";
               banner.style.pointerEvents = "none";
+              banner.remove();
+            }
+          });
+          await page.waitForTimeout(300);
+        }
+        
+        // Scroll into view and click to open modal
+        await trigger.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(300);
+        
+        // Dismiss cookie banner again right before clicking (it might have reappeared)
+        const cookieBannerStillVisible = await cookieBanner.isVisible().catch(() => false);
+        if (cookieBannerStillVisible) {
+          await page.evaluate(() => {
+            const banner = document.getElementById("cookie-information-template-wrapper");
+            if (banner) {
+              banner.style.display = "none";
+              banner.style.visibility = "hidden";
+              banner.style.opacity = "0";
+              banner.style.pointerEvents = "none";
+              banner.remove();
             }
           });
           await page.waitForTimeout(200);
         }
         
-        // Click to open modal
-        await trigger.click({ timeout: 10000 }).catch(async () => {
-          // If click fails, try force click
-          await trigger.click({ force: true }).catch(async () => {
-            // If that fails, try JavaScript click
-            await trigger.evaluate((el) => {
-              if (el instanceof HTMLElement) el.click();
-            });
+        // Get the href before clicking (in case it's a link that navigates)
+        const triggerHref = await trigger.getAttribute("href").catch(() => null);
+        const isPopupLink = triggerHref?.includes("window=popup") || triggerHref?.includes("enter-lottery");
+        const originalUrl = page.url();
+        
+        // Set up navigation promise if this is a link that might navigate
+        let navigationPromise = null;
+        if (isPopupLink && triggerHref) {
+          // If it's a relative URL, make it absolute
+          const fullUrl = triggerHref.startsWith("http") 
+            ? triggerHref 
+            : new URL(triggerHref, page.url()).toString();
+          navigationPromise = page.waitForURL((url) => url.includes("enter-lottery") || url !== originalUrl, { timeout: 10000 }).catch(() => null);
+        }
+        
+        // Click to open modal/popup - use force click to bypass any remaining interceptors
+        await trigger.click({ force: true, timeout: 10000 }).catch(async () => {
+          // If force click fails, try JavaScript click
+          await trigger.evaluate((el) => {
+            if (el instanceof HTMLElement) el.click();
           });
         });
         
-        console.log(`✅ Clicked entry trigger ${i + 1} to open modal`);
+        console.log(`✅ Clicked entry trigger ${i + 1}${isPopupLink ? " (popup link)" : ""}`);
+        
+        // Wait for either navigation (if popup link) or modal appearance
+        if (navigationPromise) {
+          try {
+            await navigationPromise;
+            console.log(`✅ Navigated to popup URL: ${page.url()}`);
+            // Wait for page to load
+            await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
+            await page.waitForTimeout(1000);
+          } catch {
+            // Navigation didn't happen, might be a modal instead
+          }
+        }
         
         // Wait for modal to appear - look for common modal selectors
         const modalSelectors = [
@@ -191,18 +272,31 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
           }
         }
         
-        // Also check if form fields are now visible (modal might not have standard modal classes)
+        // Check if form fields are now visible (either in modal or on navigated page)
         const firstNameField = page.getByLabel("First Name");
         const isFormVisible = await firstNameField.isVisible({ timeout: 5000 }).catch(() => false);
         
-        if (!modalFound && !isFormVisible) {
-          console.log("⚠️  Modal did not appear after clicking - may need to navigate to href");
+        // Check if we navigated to a new URL
+        const currentUrl = page.url();
+        const urlChanged = currentUrl !== originalUrl && currentUrl.includes("enter-lottery");
+        
+        if (!modalFound && !isFormVisible && !urlChanged) {
+          console.log("⚠️  Modal/form did not appear after clicking - trying to navigate to href");
           // Fall back to href navigation for this entry
-          if (i < validHrefs.length && validHrefs[i]) {
+          if (triggerHref) {
+            const fullUrl = triggerHref.startsWith("http") 
+              ? triggerHref 
+              : new URL(triggerHref, page.url()).toString();
+            await page.goto(fullUrl, { waitUntil: "networkidle", timeout: 60000 });
+            await page.waitForTimeout(1000);
+          } else if (i < validHrefs.length && validHrefs[i]) {
             await page.goto(validHrefs[i]!, { waitUntil: "networkidle", timeout: 60000 });
+            await page.waitForTimeout(1000);
           } else {
             continue;
           }
+        } else if (urlChanged) {
+          console.log(`✅ Navigated to form page: ${currentUrl}`);
         }
       } catch (error) {
         console.warn(`⚠️  Failed to open modal with trigger ${i + 1}: ${error.message}`);
@@ -215,18 +309,18 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
       }
       
       // Now check if form is available (either in modal or on page)
-      const formPageText = await page.textContent("body").catch(() => "");
-      const lowerFormText = (formPageText || "").toLowerCase();
-      
-      const isFormPageClosed = 
-        lowerFormText.includes("lottery is closed") ||
-        lowerFormText.includes("lottery has closed") ||
-        lowerFormText.includes("no longer accepting entries") ||
-        lowerFormText.includes("entries are closed") ||
-        lowerFormText.includes("lottery closed") ||
-        lowerFormText.includes("entry period has ended");
+    const formPageText = await page.textContent("body").catch(() => "");
+    const lowerFormText = (formPageText || "").toLowerCase();
+    
+    const isFormPageClosed = 
+      lowerFormText.includes("lottery is closed") ||
+      lowerFormText.includes("lottery has closed") ||
+      lowerFormText.includes("no longer accepting entries") ||
+      lowerFormText.includes("entries are closed") ||
+      lowerFormText.includes("lottery closed") ||
+      lowerFormText.includes("entry period has ended");
 
-      if (isFormPageClosed) {
+    if (isFormPageClosed) {
         console.log("ℹ️  Lottery is closed - skipping entry");
         // Close modal if open
         try {
@@ -235,15 +329,15 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
         } catch {
           // Ignore
         }
-        continue;
-      }
+      continue;
+    }
 
       // Check if form fields are available
-      const firstNameField = page.getByLabel("First Name");
-      const isFormAvailable = await firstNameField.isVisible({ timeout: 5000 }).catch(() => false);
-      
-      if (!isFormAvailable) {
-        console.log("ℹ️  Form is not available - lottery may be closed");
+    const firstNameField = page.getByLabel("First Name");
+    const isFormAvailable = await firstNameField.isVisible({ timeout: 5000 }).catch(() => false);
+    
+    if (!isFormAvailable) {
+      console.log("ℹ️  Form is not available - lottery may be closed");
         // Close modal if open
         try {
           const closeButton = page.locator('[aria-label*="close"], .modal-close, [class*="close"]').first();
@@ -251,59 +345,59 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
         } catch {
           // Ignore
         }
-        continue;
+      continue;
+    }
+
+    // If we get here, we found an open entry form
+    allEntriesClosed = false;
+    attemptedSubmissions++;
+
+    await firstNameField.waitFor({ timeout: 30000 });
+    await page.getByLabel("First Name").fill(userInfo.firstName);
+    await page.getByLabel("Last Name").fill(userInfo.lastName);
+    await page
+      .getByLabel("Qty of Tickets Requested")
+      .selectOption(userInfo.numberOfTickets);
+    await page.getByLabel("Email").fill(userInfo.email);
+
+    // Enter Date of Birth
+    await page.locator("#dlslot_dob_month").fill(userInfo.dateOfBirth.month);
+    await page.locator("#dlslot_dob_day").fill(userInfo.dateOfBirth.day);
+    await page.locator("#dlslot_dob_year").fill(userInfo.dateOfBirth.year);
+
+    await page.getByLabel("Zip").fill(userInfo.zip);
+    await page
+      .getByLabel("Country of Residence")
+      .selectOption({ label: userInfo.countryOfResidence });
+
+    // Agree to terms
+    await page.locator("#dlslot_agree").check({ force: true });
+
+    // Set up error logging before form submission
+    // Log JavaScript console errors
+    page.on("console", (msg) => {
+      const type = msg.type();
+      if (type === "error") {
+        console.log(`🔴 Console error: ${msg.text()}`);
       }
+    });
 
-      // If we get here, we found an open entry form
-      allEntriesClosed = false;
-      attemptedSubmissions++;
-
-      await firstNameField.waitFor({ timeout: 30000 });
-      await page.getByLabel("First Name").fill(userInfo.firstName);
-      await page.getByLabel("Last Name").fill(userInfo.lastName);
-      await page
-        .getByLabel("Qty of Tickets Requested")
-        .selectOption(userInfo.numberOfTickets);
-      await page.getByLabel("Email").fill(userInfo.email);
-
-      // Enter Date of Birth
-      await page.locator("#dlslot_dob_month").fill(userInfo.dateOfBirth.month);
-      await page.locator("#dlslot_dob_day").fill(userInfo.dateOfBirth.day);
-      await page.locator("#dlslot_dob_year").fill(userInfo.dateOfBirth.year);
-
-      await page.getByLabel("Zip").fill(userInfo.zip);
-      await page
-        .getByLabel("Country of Residence")
-        .selectOption({ label: userInfo.countryOfResidence });
-
-      // Agree to terms
-      await page.locator("#dlslot_agree").check({ force: true });
-
-      // Set up error logging before form submission
-      // Log JavaScript console errors
-      page.on("console", (msg) => {
-        const type = msg.type();
-        if (type === "error") {
-          console.log(`🔴 Console error: ${msg.text()}`);
-        }
-      });
-
-      // Log page errors
-      page.on("pageerror", (error) => {
-        console.log(`🔴 Page error: ${error.message}`);
-      });
+    // Log page errors
+    page.on("pageerror", (error) => {
+      console.log(`🔴 Page error: ${error.message}`);
+    });
 
       // Handle cookie consent banner if present - do this more aggressively
-      const cookieBanner = page.locator("#cookie-information-template-wrapper");
-      const isCookieBannerVisible = await cookieBanner.isVisible().catch(() => false);
-      if (isCookieBannerVisible) {
+    const cookieBanner = page.locator("#cookie-information-template-wrapper");
+    const isCookieBannerVisible = await cookieBanner.isVisible().catch(() => false);
+    if (isCookieBannerVisible) {
         console.log("🍪 Cookie banner detected - attempting to dismiss");
         // Try multiple strategies to dismiss the cookie banner
         try {
           // Strategy 1: Find and click an accept/agree button within the cookie banner
           const acceptButton = cookieBanner.getByRole("button", { name: /accept|agree|ok|got it|continue/i });
           const acceptButtonVisible = await acceptButton.isVisible({ timeout: 2000 }).catch(() => false);
-          if (acceptButtonVisible) {
+      if (acceptButtonVisible) {
             await acceptButton.click({ force: true });
             console.log("✅ Clicked cookie banner accept button");
           }
@@ -489,11 +583,11 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
           } catch (e) {
             console.warn("⚠️  Could not interact with reCAPTCHA checkbox");
           }
-        } else {
+      } else {
           // Wait a bit more to ensure verification is complete
-          await page.waitForTimeout(1000);
-        }
+        await page.waitForTimeout(1000);
       }
+    }
 
       // Submit the form - try multiple locator strategies for "Enter Now" button
       let enterButton;
@@ -529,28 +623,28 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
           }
         }
       }
-      const formUrl = page.url();
+    const formUrl = page.url();
 
-      // Check if form is valid before submission
-      const form = page.locator("form").first();
-      const isFormValid = await form.evaluate((formEl) => {
-        return (formEl as HTMLFormElement).checkValidity();
-      }).catch(() => true); // If we can't check, assume it's valid
+    // Check if form is valid before submission
+    const form = page.locator("form").first();
+    const isFormValid = await form.evaluate((formEl) => {
+      return (formEl as HTMLFormElement).checkValidity();
+    }).catch(() => true); // If we can't check, assume it's valid
 
-      if (!isFormValid) {
-        console.warn("⚠️  Form validation failed - form may not submit");
-      }
+    if (!isFormValid) {
+      console.warn("⚠️  Form validation failed - form may not submit");
+    }
 
-      // Check if button is disabled or not clickable
-      const isButtonDisabled = await enterButton.isDisabled().catch(() => false);
-      const isButtonVisible = await enterButton.isVisible().catch(() => false);
-      
-      if (isButtonDisabled) {
-        console.warn("⚠️  Enter button is disabled - form may not submit");
-      }
-      if (!isButtonVisible) {
-        console.warn("⚠️  Enter button is not visible - form may not submit");
-      }
+    // Check if button is disabled or not clickable
+    const isButtonDisabled = await enterButton.isDisabled().catch(() => false);
+    const isButtonVisible = await enterButton.isVisible().catch(() => false);
+    
+    if (isButtonDisabled) {
+      console.warn("⚠️  Enter button is disabled - form may not submit");
+    }
+    if (!isButtonVisible) {
+      console.warn("⚠️  Enter button is not visible - form may not submit");
+    }
 
     // Log all non-GET requests to help debug what's happening
     page.on("response", (response) => {
@@ -572,119 +666,149 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
     });
 
     // Set up waiting for the actual form submission response
-    // Also watch for navigation and DOM changes that indicate submission
-    const formSubmissionPromise = Promise.race([
-      // Strategy 1: Wait for network response
-      page
-        .waitForResponse(
-          async (response) => {
-            const method = response.request().method();
-            const status = response.status();
-            const url = response.url();
-            
-            // Exclude static assets
-            const isStaticAsset = url.match(/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|ico)$/i);
-            
-            // Exclude Google Analytics and other tracking services
-            const isTracking = 
-              url.includes("google-analytics.com") ||
-              url.includes("googletagmanager.com") ||
-              url.includes("doubleclick.net") ||
-              url.includes("googleadservices.com") ||
-              url.includes("facebook.com/tr") ||
-              url.includes("analytics");
-            
-            // Look for actual form submission endpoints
-            // Any POST/PUT/PATCH to broadwaydirect.com (excluding tracking) is likely the form submission
-            // Also accept GET requests that might be form submissions (some forms use GET)
-            const isFormSubmission =
-              (method === "POST" || method === "PUT" || method === "PATCH" || method === "GET") &&
-              status >= 200 &&
-              status < 400 &&
-              !isStaticAsset &&
-              !isTracking &&
-              (url.includes("broadwaydirect.com") || url.includes("lottery"));
+      // Also watch for navigation and DOM changes that indicate submission
+      const formSubmissionPromise = Promise.race([
+        // Strategy 1: Wait for network response
+        page
+      .waitForResponse(
+        async (response) => {
+          const method = response.request().method();
+          const status = response.status();
+          const url = response.url();
+          
+          // Exclude static assets
+          const isStaticAsset = url.match(/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|ico)$/i);
+          
+          // Exclude Google Analytics and other tracking services
+          const isTracking = 
+            url.includes("google-analytics.com") ||
+            url.includes("googletagmanager.com") ||
+            url.includes("doubleclick.net") ||
+            url.includes("googleadservices.com") ||
+            url.includes("facebook.com/tr") ||
+            url.includes("analytics");
+          
+          // Look for actual form submission endpoints
+          // Any POST/PUT/PATCH to broadwaydirect.com (excluding tracking) is likely the form submission
+              // Also accept GET requests that might be form submissions (some forms use GET)
+          const isFormSubmission =
+                (method === "POST" || method === "PUT" || method === "PATCH" || method === "GET") &&
+            status >= 200 &&
+            status < 400 &&
+            !isStaticAsset &&
+            !isTracking &&
+                (url.includes("broadwaydirect.com") || url.includes("lottery"));
 
-            if (isFormSubmission) {
-              console.log(
-                `📡 Form submission response: ${method} ${status} ${url}`
-              );
-              
-              // Try to get response body for debugging
-              try {
-                const body = await response.text();
-                if (body) {
-                  console.log(`📄 Response body preview: ${body.substring(0, 200)}`);
-                }
-              } catch (e) {
-                // Response body might not be available, ignore
+          if (isFormSubmission) {
+            console.log(
+              `📡 Form submission response: ${method} ${status} ${url}`
+            );
+            
+            // Try to get response body for debugging
+            try {
+              const body = await response.text();
+              if (body) {
+                console.log(`📄 Response body preview: ${body.substring(0, 200)}`);
               }
+            } catch (e) {
+              // Response body might not be available, ignore
             }
+          }
 
-            return isFormSubmission;
-          },
-          { timeout: 30000 }
-        )
-        .catch(() => null),
-      // Strategy 2: Wait for navigation (form might cause page change)
-      page
-        .waitForURL((url) => url !== formUrl, { timeout: 30000 })
-        .then(() => {
-          console.log(`📡 Navigation detected after form submission`);
-          return { navigation: true, url: page.url() };
-        })
-        .catch(() => null),
-      // Strategy 3: Wait for success message to appear in DOM
-      page
-        .waitForSelector(
-          '[class*="success"], [class*="alert-success"], [id*="success"], [class*="thank"], [class*="entered"]',
-          { timeout: 30000 }
-        )
-        .then(() => {
-          console.log(`📡 Success indicator appeared in DOM`);
-          return { domChange: true };
-        })
-        .catch(() => null),
-    ]).catch(() => null);
+          return isFormSubmission;
+        },
+        { timeout: 30000 }
+      )
+          .catch(() => null),
+        // Strategy 2: Wait for navigation (form might cause page change)
+        page
+          .waitForURL((url) => url !== formUrl, { timeout: 30000 })
+          .then(() => {
+            console.log(`📡 Navigation detected after form submission`);
+            return { navigation: true, url: page.url() };
+          })
+          .catch(() => null),
+        // Strategy 3: Wait for success message to appear in DOM
+        page
+          .waitForSelector(
+            '[class*="success"], [class*="alert-success"], [id*="success"], [class*="thank"], [class*="entered"]',
+            { timeout: 30000 }
+          )
+          .then(() => {
+            console.log(`📡 Success indicator appeared in DOM`);
+            return { domChange: true };
+          })
+          .catch(() => null),
+      ]).catch(() => null);
 
     // Wait a bit to ensure form is ready
     await page.waitForTimeout(500);
     
-    // Ensure cookie banner is not blocking by checking one more time
-    const cookieBannerStillVisible = await cookieBanner.isVisible().catch(() => false);
-    if (cookieBannerStillVisible) {
-      // Force hide it one more time
-      await page.evaluate(() => {
-        const banner = document.getElementById("cookie-information-template-wrapper");
-        if (banner) {
-          banner.style.display = "none";
-          banner.style.visibility = "hidden";
-          banner.style.opacity = "0";
-          banner.style.pointerEvents = "none";
-          banner.remove();
+      // Aggressively dismiss cookie banner right before clicking Enter button
+      // The cookie banner can reappear or persist, so we need to be very aggressive
+      const cookieBannerStillVisible = await cookieBanner.isVisible().catch(() => false);
+      if (cookieBannerStillVisible) {
+        console.log("🍪 Cookie banner still visible - force dismissing before Enter button click...");
+        // Try clicking accept button first
+        try {
+          const acceptButton = cookieBanner.getByRole("button", { name: /accept|agree|ok|got it|continue/i });
+          if (await acceptButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+            await acceptButton.click({ force: true });
+            await page.waitForTimeout(200);
+          }
+        } catch {
+          // Continue to force hide
         }
-      });
-      await page.waitForTimeout(300);
-    }
-    
-    try {
+        
+        // Force hide via JavaScript - be very aggressive
+        await page.evaluate(() => {
+          const banner = document.getElementById("cookie-information-template-wrapper");
+          if (banner) {
+            banner.style.display = "none";
+            banner.style.visibility = "hidden";
+            banner.style.opacity = "0";
+            banner.style.pointerEvents = "none";
+            banner.remove();
+          }
+          // Also remove any other cookie-related elements
+          const cookieElements = document.querySelectorAll('[id*="cookie"], [class*="cookie"]');
+          cookieElements.forEach((el) => {
+            (el as HTMLElement).style.pointerEvents = "none";
+            (el as HTMLElement).style.display = "none";
+          });
+        });
+        await page.waitForTimeout(300);
+      }
+      
+      // Always use force click since cookie banner is known to intercept
       // Scroll button into view if needed
       await enterButton.scrollIntoViewIfNeeded();
       await page.waitForTimeout(200);
       
-      // Try normal click first
-      await enterButton.click({ timeout: 10000 });
-      console.log("✅ Enter button clicked");
-    } catch (error) {
-      console.warn(`⚠️  Initial click failed: ${error.message}`);
-      // If click fails due to interception, try multiple strategies
+      // Dismiss cookie banner one more time right before click
+      const cookieBannerFinalCheck = await cookieBanner.isVisible().catch(() => false);
+      if (cookieBannerFinalCheck) {
+        await page.evaluate(() => {
+          const banner = document.getElementById("cookie-information-template-wrapper");
+          if (banner) {
+            banner.style.display = "none";
+            banner.style.visibility = "hidden";
+            banner.style.opacity = "0";
+            banner.style.pointerEvents = "none";
+            banner.remove();
+          }
+        });
+        await page.waitForTimeout(200);
+      }
+      
       try {
-        // Strategy 1: Force click
-        await enterButton.click({ force: true });
-        console.log("✅ Enter button clicked (forced)");
-      } catch (forceError) {
+        // Use force click from the start to bypass cookie banner interception
+        await enterButton.click({ force: true, timeout: 10000 });
+        console.log("✅ Enter button clicked (forced to bypass interceptors)");
+    } catch (error) {
+        console.warn(`⚠️  Force click failed: ${error.message}`);
+        // If force click fails, try JavaScript click
         try {
-          // Strategy 2: Click via JavaScript
           await enterButton.evaluate((el) => {
             if (el instanceof HTMLElement) {
               el.click();
@@ -693,7 +817,7 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
           console.log("✅ Enter button clicked (via JavaScript)");
         } catch (jsError) {
           try {
-            // Strategy 3: Submit form directly
+            // Last resort: Submit form directly
             await form.evaluate((formEl) => {
               (formEl as HTMLFormElement).submit();
             });
@@ -702,13 +826,12 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
             console.error(`❌ Failed to click/submit: ${submitError.message}`);
             throw submitError;
           }
-        }
       }
     }
 
     // Wait for form submission response
     const response = await formSubmissionPromise;
-    let hasSubmissionIndicator = false;
+      let hasSubmissionIndicator = false;
     
     if (response) {
       // Check what type of response we got
@@ -722,24 +845,24 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
         hasSubmissionIndicator = true;
       } else if (response && typeof response.request === 'function') {
         // Network response-based detection
-        console.log(
-          `✅ Form submission completed: ${response.request().method()} ${response.status()} ${response.url()}`
-        );
+      console.log(
+        `✅ Form submission completed: ${response.request().method()} ${response.status()} ${response.url()}`
+      );
         hasSubmissionIndicator = true;
-        
-        // Check response body for success/error indicators
-        try {
-          const responseBody = await response.text();
-          if (responseBody) {
-            const lowerBody = responseBody.toLowerCase();
-            if (lowerBody.includes("error") || lowerBody.includes("invalid") || lowerBody.includes("failed")) {
-              console.warn(`⚠️  Response body suggests error: ${responseBody.substring(0, 300)}`);
-            } else if (lowerBody.includes("success") || lowerBody.includes("entered") || lowerBody.includes("thank")) {
-              console.log(`✅ Response body suggests success`);
-            }
+      
+      // Check response body for success/error indicators
+      try {
+        const responseBody = await response.text();
+        if (responseBody) {
+          const lowerBody = responseBody.toLowerCase();
+          if (lowerBody.includes("error") || lowerBody.includes("invalid") || lowerBody.includes("failed")) {
+            console.warn(`⚠️  Response body suggests error: ${responseBody.substring(0, 300)}`);
+          } else if (lowerBody.includes("success") || lowerBody.includes("entered") || lowerBody.includes("thank")) {
+            console.log(`✅ Response body suggests success`);
           }
-        } catch (e) {
-          // Response body might not be readable, ignore
+        }
+      } catch (e) {
+        // Response body might not be readable, ignore
         }
       }
     } else {
@@ -861,9 +984,9 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
       }
     }
 
-      // Wait for a random timeout to avoid spamming the API
-      const breakTime = Math.floor(Math.random() * 1000) + 1;
-      await page.waitForTimeout(breakTime);
+    // Wait for a random timeout to avoid spamming the API
+    const breakTime = Math.floor(Math.random() * 1000) + 1;
+    await page.waitForTimeout(breakTime);
       
       // Close modal if it's still open before next iteration (important for multiple entries)
       if (useModalApproach && i < entryTriggers.length - 1) {
@@ -871,10 +994,20 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
         console.log(`🔄 Closing modal before processing next entry...`);
         
         // Wait a bit for any post-submission animations
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(1500);
+        
+        // Check if we're still in a popup/modal window - if so, navigate back to main page
+        const currentUrl = page.url();
+        if (currentUrl.includes('window=popup') || currentUrl.includes('/enter-lottery/')) {
+          console.log("🔄 Navigating back to main page from popup...");
+          // Navigate back to the original show page
+          await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+          await page.waitForTimeout(1000);
+        }
         
         // Try multiple strategies to close the modal
         let modalClosed = false;
+        let formHidden = false;
         
         // Strategy 1: Look for close button
         try {
@@ -897,6 +1030,7 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
                 await closeButton.click({ timeout: 2000 });
                 console.log(`✅ Closed modal using selector: ${selector}`);
                 modalClosed = true;
+                await page.waitForTimeout(500);
                 break;
               }
             } catch {
@@ -922,12 +1056,12 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
         // Strategy 3: Click outside modal (backdrop)
         if (!modalClosed) {
           try {
-            const modal = page.locator('[role="dialog"], .modal, [class*="modal"]').first();
             const backdrop = page.locator('.modal-backdrop, [class*="backdrop"]').first();
             if (await backdrop.isVisible({ timeout: 1000 }).catch(() => false)) {
               await backdrop.click({ force: true });
               console.log("✅ Clicked backdrop to close modal");
               modalClosed = true;
+              await page.waitForTimeout(500);
             }
           } catch {
             // Try next strategy
@@ -953,26 +1087,60 @@ export async function broadwayDirect({ browser, userInfo, url }): Promise<Lotter
               // Remove modal-open class from body
               document.body.classList.remove('modal-open');
               document.body.style.overflow = '';
+              
+              // Hide any form elements that might still be visible
+              const forms = document.querySelectorAll('form');
+              forms.forEach((form) => {
+                const formParent = form.closest('[role="dialog"], .modal, [class*="modal"]');
+                if (formParent) {
+                  (formParent as HTMLElement).style.display = 'none';
+                }
+              });
             });
             console.log("✅ Force-closed modal via JavaScript");
             modalClosed = true;
+            await page.waitForTimeout(500);
           } catch {
             console.warn("⚠️  Could not close modal - may interfere with next entry");
           }
         }
         
-        // Wait a bit to ensure modal is fully closed
-        await page.waitForTimeout(500);
+        // Wait and verify modal/form is actually closed
+        await page.waitForTimeout(1000);
         
-        // Verify modal is closed by checking if form fields are no longer visible
+        // Check if form fields are no longer visible
         try {
           const firstNameField = page.getByLabel("First Name");
           const isFormStillVisible = await firstNameField.isVisible({ timeout: 1000 }).catch(() => false);
-          if (isFormStillVisible) {
-            console.warn("⚠️  Form still visible after closing attempt - modal may not be fully closed");
+          if (!isFormStillVisible) {
+            formHidden = true;
+            console.log("✅ Form is no longer visible - modal appears closed");
+          } else {
+            console.warn("⚠️  Form still visible after closing attempt");
+            // Try one more time to force hide
+            await page.evaluate(() => {
+              const forms = document.querySelectorAll('form');
+              forms.forEach((form) => {
+                const formParent = form.closest('[role="dialog"], .modal, [class*="modal"], [class*="popup"]');
+                if (formParent) {
+                  (formParent as HTMLElement).style.display = 'none';
+                  (formParent as HTMLElement).style.visibility = 'hidden';
+                }
+              });
+            });
+            await page.waitForTimeout(500);
           }
         } catch {
-          // Ignore
+          // If we can't check, assume it's closed
+          formHidden = true;
+        }
+        
+        // If we're still on a popup URL and form is still visible, navigate back
+        const stillOnPopup = page.url().includes('window=popup') || page.url().includes('/enter-lottery/');
+        if (stillOnPopup || !formHidden) {
+          console.log("🔄 Navigating back to main page to reset state...");
+          await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+          await page.waitForTimeout(1000);
         }
       }
     }

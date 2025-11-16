@@ -6,18 +6,104 @@ The project was created to automate signing up for Broadway musicals' lotteries 
 
 ## How to use it
 
+### Local Testing
+
+You can test the automation locally before deploying to GitHub Actions:
+
+1. **Set up the project:**
+
+   ```bash
+   make setup
+   # or manually:
+   npm install
+   npx playwright install chromium
+   ```
+
+2. **Set environment variables:**
+
+   **Using direnv (recommended):**
+
+   If you have [direnv](https://direnv.net/) installed, copy the example file:
+
+   ```bash
+   cp .envrc.example .envrc
+   # Then edit .envrc with your actual information
+   direnv allow
+   ```
+
+   direnv will automatically load the environment variables when you enter the project directory.
+
+   **Or export them directly in your shell:**
+
+   ```bash
+   export FIRST_NAME="Your First Name"
+   export LAST_NAME="Your Last Name"
+   export NUMBER_OF_TICKETS="2"
+   export EMAIL="your.email@example.com"
+   export DOB_MONTH="1"
+   export DOB_DAY="15"
+   export DOB_YEAR="1990"
+   export ZIP="10001"
+   export COUNTRY="USA"
+   ```
+
+   **Note:** The `.envrc` file is gitignored and won't be committed to the repository.
+
+3. **Run tests:**
+
+   **With browser visible (recommended for debugging):**
+
+   ```bash
+   make test
+   # or
+   npm run test:headed
+   ```
+
+   **In headless mode:**
+
+   ```bash
+   make test-headless
+   # or
+   npm run test:headless
+   ```
+
+   **Interactive UI mode:**
+
+   ```bash
+   make test-ui
+   # or
+   npm run test:ui
+   ```
+
+   **Debug mode (step through):**
+
+   ```bash
+   make test-debug
+   # or
+   npm run test:debug
+   ```
+
+4. **View test report:**
+   ```bash
+   make test-report
+   # or
+   npm run test:report
+   ```
+
+### GitHub Actions (Automated)
+
 1. "Fork" the repository (button at the top right side)
 2. To create ([repository secrets](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions#creating-secrets-for-a-repository)) go to the **Settings** tab => **Secrets and variables** => **Actions**
 3. Click "New repository secret" and add the following secrets with your personal information:
-    1. `FIRST_NAME` (example value: `Donald`)
-    2. `LAST_NAME` (example value: `Duck`)
-    3. `NUMBER_OF_TICKETS` (allowed values: `1` or `2`)
-    4. `EMAIL` (example value: `donald.duck@gmail.com`)
-    5. `DOB_MONTH` - month of birth (allowed values: `1` - `12`)
-    6. `DOB_DAY` - day of birth (allowed values: `1` - `31`)
-    7. `DOB_YEAR` - year of birth (example value: `1999`)
-    8. `ZIP` - address postal code (example value: `10007`)
-    9. `COUNTRY` (allowed values: `USA`, `CANADA`, `OTHER`)
+   1. `FIRST_NAME` (example value: `Donald`)
+   2. `LAST_NAME` (example value: `Duck`)
+   3. `NUMBER_OF_TICKETS` (allowed values: `1` or `2`)
+   4. `EMAIL` (example value: `donald.duck@gmail.com`)
+   5. `DOB_MONTH` - month of birth (allowed values: `1` - `12`)
+   6. `DOB_DAY` - day of birth (allowed values: `1` - `31`)
+   7. `DOB_YEAR` - year of birth (example value: `1999`)
+   8. `ZIP` - address postal code (example value: `10007`)
+   9. `COUNTRY` (allowed values: `USA`, `CANADA`, `OTHER`)
 4. Go to the **Actions** tab, accept the terms and conditions, and enable the "Playwright Tests" workflow
 5. The workflow will run daily at the [specified time](/.github/workflows/playwright.yml#L5) (UTC timezone)
 6. Modify the [list of shows](/e2e/broadway-direct.spec.ts#L14) you want to sign-up for if needed
@@ -25,11 +111,12 @@ The project was created to automate signing up for Broadway musicals' lotteries 
 ### Secrets example
 
 #### List of secrets
+
 <img width="640" alt="image" src="https://github.com/NameFILIP/broadway-lottery/assets/834796/7b3baad6-5fad-42ff-9704-074d6bcaadc2">
 
 #### Create a new secret
-<img width="640" alt="image" src="https://github.com/NameFILIP/broadway-lottery/assets/834796/52daa38a-7fec-4f5d-b918-362b18dcb2bc">
 
+<img width="640" alt="image" src="https://github.com/NameFILIP/broadway-lottery/assets/834796/52daa38a-7fec-4f5d-b918-362b18dcb2bc">
 
 ## Email filters
 

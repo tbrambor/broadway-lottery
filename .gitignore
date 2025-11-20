@@ -1,5 +1,7 @@
 node_modules/
 MODULARIZATION_PLAN.md
+.github/DETACH_FORK.md
+RENAMING.md
 /test-results/
 /playwright-report/
 /playwright/.cache/

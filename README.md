@@ -1,13 +1,32 @@
-# Broadway Lottery Automation
+# 🎭 Broadway Lottery Automation
+
+> Automate your Broadway lottery entries and never miss a chance to see your favorite shows!
 
 ## Overview
 
-This project automates signing up for Broadway musical lotteries to get affordable tickets. It supports multiple lottery platforms:
+**Broadway Lottery Automation** is a comprehensive, production-ready system for automatically entering Broadway musical lotteries. Get affordable tickets to the hottest shows on Broadway without the daily hassle of manual entries.
+
+### ✨ Features
+
+- 🎪 **Multi-Platform Support**: Works with both Broadway Direct and Telecharge lotteries
+- 🔍 **Auto-Discovery**: Automatically finds available shows from bwayrush.com
+- ⚙️ **Easy Configuration**: Interactive tools and simple JSON files - no coding required
+- 🤖 **Fully Automated**: GitHub Actions integration for hands-off daily entries
+- 🎯 **Smart Selection**: Choose exactly which shows to enter (or skip)
+- 📊 **Comprehensive Logging**: Detailed reports of all lottery entries
+- 🔒 **Secure**: All credentials stored as GitHub Secrets
+
+### Supported Platforms
 
 - **[Broadway Direct](https://lottery.broadwaydirect.com/)** - TypeScript/Playwright implementation
 - **[Telecharge](https://www.telecharge.com/)** - TypeScript/Playwright implementation
 
-Each lottery platform has its own workflow and can be enabled independently. The results of the lottery drawings are sent out via email (frequently at 3 p.m., but not always). Enjoy the shows and please use this automation responsibly. Reselling these tickets is not allowed.
+- **[Broadway Direct](https://lottery.broadwaydirect.com/)** - TypeScript/Playwright implementation
+- **[Telecharge](https://www.telecharge.com/)** - TypeScript/Playwright implementation
+
+Each lottery platform has its own workflow and can be enabled independently. The results of the lottery drawings are sent out via email (frequently at 3 p.m., but not always).
+
+> ⚠️ **Please use responsibly**: This tool is designed to help you enter lotteries more efficiently. Reselling lottery tickets is not allowed. Use this automation ethically and in accordance with each platform's terms of service.
 
 ## Acknowledgments
 

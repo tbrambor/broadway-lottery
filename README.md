@@ -125,7 +125,7 @@ You can test the automation locally before deploying to GitHub Actions:
    7. `DOB_YEAR` - year of birth (example value: `1999`)
    8. `ZIP` - address postal code (example value: `10007`)
    9. `COUNTRY` (allowed values: `USA`, `CANADA`, `OTHER`)
-4. Go to the **Actions** tab, accept the terms and conditions, and enable the "Playwright Tests" workflow
+4. Go to the **Actions** tab, accept the terms and conditions, and enable the "BroadwayDirect Lottery" workflow
 5. The workflow will run daily at the [specified time](/.github/workflows/playwright.yml#L5) (UTC timezone)
 6. Modify the [list of shows](/e2e/broadway-direct.spec.ts#L14) you want to sign-up for if needed
 

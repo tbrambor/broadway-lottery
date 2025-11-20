@@ -1,4 +1,4 @@
-name: Playwright Tests
+name: BroadwayDirect Lottery
 on:
   schedule:
     # Run every day at 09:01 EST
@@ -7,7 +7,7 @@ on:
   workflow_dispatch: # allow manual runs for debugging
 
 jobs:
-  test:
+  lottery:
     timeout-minutes: 60
     runs-on: ubuntu-latest
 

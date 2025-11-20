@@ -1,0 +1,5 @@
+{
+  "SELENIUM_URL": "http://localhost:4444/wd/hub",
+  "SHOWS_TO_ENTER_PATH": "showsToEnter.json"
+}
+

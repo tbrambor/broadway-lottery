@@ -13,3 +13,8 @@ export type UserInfo = {
   zip: string;
   countryOfResidence: Country;
 };
+
+export type TelechargeLogin = {
+  email: string;
+  password: string;
+};

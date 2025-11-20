@@ -15,7 +15,7 @@ const allUrls = [
   "https://lottery.broadwaydirect.com/show/aladdin/",
   "https://lottery.broadwaydirect.com/show/beetlejuice-ny/",
   "https://lottery.broadwaydirect.com/show/death-becomes-her-ny/",
-  "https://lottery.broadwaydirect.com/show/mj-ny/",
+  # "https://lottery.broadwaydirect.com/show/mj-ny/",
   "https://lottery.broadwaydirect.com/show/six-ny/",
   "https://lottery.broadwaydirect.com/show/st-nyc/",
   "https://lottery.broadwaydirect.com/show/the-lion-king/",
@@ -86,6 +86,16 @@ urls.forEach((url) => {
         console.log(`ℹ️  No entry links found for: ${showName} - ${result.message}`);
       } else {
         console.log(`❌ Failed to submit lottery entry for: ${showName} - ${result.message}`);
+      }
+
+      // Keep browser open for a bit to see the result (unless in CI or KEEP_BROWSER_OPEN is not set)
+      if (!process.env.CI && !process.env.KEEP_BROWSER_OPEN) {
+        console.log("⏳ Keeping browser open for 5 seconds to view results...");
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      } else if (process.env.KEEP_BROWSER_OPEN === "true") {
+        console.log("🔍 Browser will stay open. Press Ctrl+C to close.");
+        // Keep browser open indefinitely
+        await new Promise(() => {});
       }
     } finally {
       if (browser) {

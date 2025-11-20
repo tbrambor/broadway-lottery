@@ -31,7 +31,7 @@ jobs:
       # No need to run `npx playwright install --with-deps` —
       # the container already includes all browsers and dependencies.
 
-      - name: Run Playwright tests
+      - name: Run Broadway Direct lottery
         env:
           CI: true
           FIRST_NAME: ${{ secrets.FIRST_NAME }}
@@ -43,7 +43,7 @@ jobs:
           DOB_YEAR: ${{ secrets.DOB_YEAR }}
           ZIP: ${{ secrets.ZIP }}
           COUNTRY: ${{ secrets.COUNTRY }}
-        run: npx playwright test
+        run: npx playwright test e2e/broadway-direct.spec.ts
 
       - name: Upload Playwright report
         if: always()

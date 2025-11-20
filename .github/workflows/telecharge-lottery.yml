@@ -1,0 +1,59 @@
+name: Telecharge Lottery
+on:
+  schedule:
+    # Run every day at 12:01 AM EST (midnight + 1 minute)
+    # UTC timezone is 05:01 (EST is UTC-5)
+    - cron: "01 05 * * *"
+  workflow_dispatch: # allow manual runs for debugging
+
+jobs:
+  lottery:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+
+    # ✅ Use Playwright's official container (already has browsers + deps)
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.0-jammy # pin a tested version
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # No need to run `npx playwright install --with-deps` —
+      # the container already includes all browsers and dependencies.
+
+      - name: Run Telecharge lottery
+        env:
+          CI: true
+          FIRST_NAME: ${{ secrets.FIRST_NAME }}
+          LAST_NAME: ${{ secrets.LAST_NAME }}
+          NUMBER_OF_TICKETS: ${{ secrets.NUMBER_OF_TICKETS }}
+          EMAIL: ${{ secrets.EMAIL }}
+          DOB_MONTH: ${{ secrets.DOB_MONTH }}
+          DOB_DAY: ${{ secrets.DOB_DAY }}
+          DOB_YEAR: ${{ secrets.DOB_YEAR }}
+          ZIP: ${{ secrets.ZIP }}
+          COUNTRY: ${{ secrets.COUNTRY }}
+          TELECHARGE_EMAIL: ${{ secrets.TELECHARGE_EMAIL }}
+          TELECHARGE_PASSWORD: ${{ secrets.TELECHARGE_PASSWORD }}
+        run: npx playwright test e2e/telecharge.spec.ts
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-telecharge
+          path: playwright-report/
+          retention-days: 30
+          compression-level: 6
+          overwrite: true
+

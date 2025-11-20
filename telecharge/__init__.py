@@ -1,0 +1,2 @@
+"""Telecharge lottery automation package."""
+

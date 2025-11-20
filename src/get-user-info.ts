@@ -1,4 +1,4 @@
-import type { UserInfo, Country } from "./types";
+import type { UserInfo, Country, TelechargeLogin } from "./types";
 
 type Env = { [key: string]: string | undefined };
 
@@ -11,7 +11,9 @@ type EnvVarName =
   | "DOB_DAY"
   | "DOB_YEAR"
   | "ZIP"
-  | "COUNTRY";
+  | "COUNTRY"
+  | "TELECHARGE_EMAIL"
+  | "TELECHARGE_PASSWORD";
 
 function requiredString(env: Env, variableName: EnvVarName) {
   const value = env[variableName];
@@ -109,5 +111,20 @@ export function getUserInfo(env: Env): UserInfo {
     },
     zip,
     countryOfResidence,
+  };
+}
+
+export function getTelechargeLogin(env: Env): TelechargeLogin {
+  const email = requiredString(env, "TELECHARGE_EMAIL");
+  const password = requiredString(env, "TELECHARGE_PASSWORD");
+
+  // Validate email format
+  if (!email.includes("@")) {
+    throw new Error(`Invalid Telecharge email address: ${email}`);
+  }
+
+  return {
+    email,
+    password,
   };
 }

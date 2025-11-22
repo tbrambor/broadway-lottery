@@ -15,13 +15,13 @@
     "name": "Chess",
     "url": "https://chessbroadway.com/",
     "lotteryUrl": "https://my.socialtoaster.com/st/lottery_select/?key=BROADWAY&source=iframe",
-    "num_tickets": 0
+    "num_tickets": 2
   },
   {
     "name": "The Great Gatsby",
     "url": "https://broadwaygatsby.com/",
     "lotteryUrl": "https://my.socialtoaster.com/st/lottery_select/?key=BROADWAY&source=iframe",
-    "num_tickets": 2
+    "num_tickets": 0
   },
   {
     "name": "Hell's Kitchen",
@@ -57,13 +57,13 @@
     "name": "Operation Mincemeat",
     "url": "https://www.operationbroadway.com/",
     "lotteryUrl": "https://my.socialtoaster.com/st/lottery_select/?key=BROADWAY&source=iframe",
-    "num_tickets": 2
+    "num_tickets": 0
   },
   {
     "name": "The Outsiders",
     "url": "https://outsidersmusical.com/",
     "lotteryUrl": "https://my.socialtoaster.com/st/lottery_select/?key=BROADWAY&source=iframe",
-    "num_tickets": 2
+    "num_tickets": 0
   },
   {
     "name": "Ragtime",

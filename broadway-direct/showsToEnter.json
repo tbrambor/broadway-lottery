@@ -12,7 +12,7 @@
   {
     "name": "Death Becomes Her",
     "url": "https://lottery.broadwaydirect.com/show/dbh-nyc/",
-    "enabled": true
+    "enabled": false
   },
   {
     "name": "The Lion King",
@@ -22,17 +22,17 @@
   {
     "name": "MJ",
     "url": "https://lottery.broadwaydirect.com/show/mj-ny/",
-    "enabled": true
+    "enabled": false
   },
   {
     "name": "Six",
     "url": "https://lottery.broadwaydirect.com/show/six-ny/",
-    "enabled": true
+    "enabled": false
   },
   {
     "name": "Stranger Things: The First Shadow",
     "url": "https://lottery.broadwaydirect.com/show/st-nyc/",
-    "enabled": true
+    "enabled": false
   },
   {
     "name": "Wicked",

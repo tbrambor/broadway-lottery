@@ -13,28 +13,65 @@ async function loginToLuckySeat(
     console.log("🔐 Logging in to Lucky Seat...");
 
     // Navigate to the Lucky Seat login page
-    // Use domcontentloaded instead of networkidle for Angular apps
+    // Use load instead of domcontentloaded to ensure all resources are loaded
+    console.log("🌐 Navigating to login page...");
     await page.goto("https://www.luckyseat.com/account/login", {
-      waitUntil: "domcontentloaded",
+      waitUntil: "load",
       timeout: 60000,
     });
+    console.log("✅ Page loaded");
 
-
-    // Wait for Angular app to load
-    console.log("⏳ Waiting for Angular app to load...");
-    await page.waitForTimeout(5000);
-
-    // Wait for the login form to be visible
+    // Wait for network to be idle (Angular app initialization)
+    console.log("⏳ Waiting for network to idle...");
     try {
-      await page.waitForSelector('input[placeholder="Email"]', { timeout: 60000 });
-      console.log("✅ Login form loaded");
+      await page.waitForLoadState("networkidle", { timeout: 30000 });
+      console.log("✅ Network idle");
+    } catch (e) {
+      console.log("⚠️  Network didn't idle, continuing anyway...");
+    }
+
+    // Additional wait for Angular to initialize
+    await page.waitForTimeout(3000);
+
+    // Wait for the login form to be visible with multiple strategies
+    console.log("🔍 Looking for login form...");
+    try {
+      // Try multiple selectors in case the page structure varies
+      const emailSelectors = [
+        'input[placeholder="Email"]',
+        'input[type="email"]',
+        'input[name="email"]',
+        'input#email',
+      ];
+      
+      let found = false;
+      for (const selector of emailSelectors) {
+        try {
+          await page.waitForSelector(selector, { timeout: 10000, state: 'visible' });
+          console.log(`✅ Login form loaded (found via: ${selector})`);
+          found = true;
+          break;
+        } catch {
+          console.log(`   Selector not found: ${selector}`);
+        }
+      }
+      
+      if (!found) {
+        throw new Error("Could not find email input field with any selector");
+      }
     } catch (error) {
       console.log("❌ Login form did not load in time");
       console.log(`   Current URL: ${page.url()}`);
+      
+      // Log page content for debugging
+      const bodyText = await page.textContent('body').catch(() => 'Could not get body text');
+      console.log(`   Page text preview: ${bodyText?.substring(0, 200)}...`);
+      
       // Take a screenshot for debugging
       try {
-        await page.screenshot({ path: 'login-timeout-debug.png', fullPage: true });
-        console.log("   Screenshot saved to login-timeout-debug.png");
+        const screenshotPath = 'test-results/login-timeout-debug.png';
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        console.log(`   Screenshot saved to ${screenshotPath}`);
       } catch (screenshotError) {
         console.log(`   Could not save screenshot: ${screenshotError}`);
       }
@@ -682,7 +719,15 @@ export async function luckyseat({
   login: TelechargeLogin;
   shows: Array<{ name: string; num_tickets?: number }>;
 }): Promise<LotteryResult> {
-  const page = await browser.newPage();
+  // Create a context with realistic browser settings to avoid bot detection
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    viewport: { width: 1920, height: 1080 },
+    locale: 'en-US',
+    timezoneId: 'America/New_York',
+  });
+  
+  const page = await context.newPage();
 
   try {
     // Step 1: Login
@@ -746,6 +791,6 @@ export async function luckyseat({
       reason: "error",
     };
   } finally {
-    await page.close();
+    await context.close();
   }
 }

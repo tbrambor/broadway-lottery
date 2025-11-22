@@ -1,0 +1,22 @@
+[
+  {
+    "name": "The Book of Mormon",
+    "num_tickets": 2
+  },
+  {
+    "name": "Hadestown",
+    "num_tickets": 2
+  },
+  {
+    "name": "Moulin Rouge!",
+    "num_tickets": 0
+  },
+  {
+    "name": "The Queen of Versailles",
+    "num_tickets": 0
+  },
+  {
+    "name": "Waiting for Godot",
+    "num_tickets": 2
+  }
+]

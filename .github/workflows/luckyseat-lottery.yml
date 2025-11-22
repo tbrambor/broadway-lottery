@@ -1,0 +1,56 @@
+name: Lucky Seat Lottery
+on:
+  schedule:
+    # Run every day at 12:01 AM Eastern Time (midnight + 1 minute)
+    # Note: GitHub Actions cron is in UTC and doesn't adjust for DST
+    # EDT (Mar-Nov): 12:01 AM EDT = 04:01 UTC
+    # EST (Nov-Mar): 12:01 AM EST = 05:01 UTC
+    # We use 04:01 UTC to catch EDT, which will run at 11:01 PM EST in winter
+    # (still acceptable as lottery opens at midnight)
+    - cron: "01 04 * * *"
+  workflow_dispatch: # allow manual runs for debugging
+
+jobs:
+  lottery:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+
+    # ✅ Use Playwright's official container (already has browsers + deps)
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.0-jammy # pin a tested version
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # No need to run `npx playwright install --with-deps` —
+      # the container already includes all browsers and dependencies.
+
+      - name: Run Lucky Seat lottery
+        env:
+          CI: true
+          NUMBER_OF_TICKETS: ${{ secrets.NUMBER_OF_TICKETS }}
+          LUCKYSEAT_EMAIL: ${{ secrets.LUCKYSEAT_EMAIL }}
+          LUCKYSEAT_PASSWORD: ${{ secrets.LUCKYSEAT_PASSWORD }}
+          CAPTCHA_API_KEY: ${{ secrets.CAPTCHA_API_KEY }}
+        run: npx playwright test e2e/luckyseat.spec.ts
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-luckyseat
+          path: playwright-report/
+          retention-days: 30
+          compression-level: 6
+          overwrite: true
+

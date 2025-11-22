@@ -15,7 +15,12 @@ interface BroadwayDirectShowConfig {
   enabled?: boolean;
 }
 
-type LotteryType = "telecharge" | "broadway-direct" | "both";
+interface LuckySeatShowConfig {
+  name: string;
+  num_tickets?: number;
+}
+
+type LotteryType = "telecharge" | "broadway-direct" | "luckyseat" | "all";
 
 /**
  * Create readline interface
@@ -71,6 +76,23 @@ function loadBroadwayDirectShows(): BroadwayDirectShowConfig[] {
 }
 
 /**
+ * Load Lucky Seat shows from JSON file
+ */
+function loadLuckySeatShows(): LuckySeatShowConfig[] {
+  const showsPath = join(__dirname, "../luckyseat/showsToEnter.json");
+  try {
+    if (!existsSync(showsPath)) {
+      return [];
+    }
+    const data = JSON.parse(readFileSync(showsPath, "utf-8"));
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error(`❌ Error loading Lucky Seat shows: ${error}`);
+    return [];
+  }
+}
+
+/**
  * Save Telecharge shows to JSON file
  */
 function saveTelechargeShows(shows: TelechargeShowConfig[]): void {
@@ -86,6 +108,15 @@ function saveBroadwayDirectShows(shows: BroadwayDirectShowConfig[]): void {
   const showsPath = join(__dirname, "../broadway-direct/showsToEnter.json");
   writeFileSync(showsPath, JSON.stringify(shows, null, 2) + "\n", "utf-8");
   console.log(`✅ Saved Broadway Direct configuration to ${showsPath}`);
+}
+
+/**
+ * Save Lucky Seat shows to JSON file
+ */
+function saveLuckySeatShows(shows: LuckySeatShowConfig[]): void {
+  const showsPath = join(__dirname, "../luckyseat/showsToEnter.json");
+  writeFileSync(showsPath, JSON.stringify(shows, null, 2) + "\n", "utf-8");
+  console.log(`✅ Saved Lucky Seat configuration to ${showsPath}`);
 }
 
 /**
@@ -232,6 +263,79 @@ async function configureBroadwayDirectShows(
 }
 
 /**
+ * Configure Lucky Seat shows
+ */
+async function configureLuckySeatShows(
+  rl: readline.Interface
+): Promise<LuckySeatShowConfig[]> {
+  const shows = loadLuckySeatShows();
+
+  if (shows.length === 0) {
+    console.log(
+      "\n⚠️  No Lucky Seat shows found. Check luckyseat/showsToEnter.json"
+    );
+    return [];
+  }
+
+  console.log("\n🎭 Lucky Seat Lottery Show Configuration\n");
+  console.log("Configure which shows to enter by setting num_tickets:");
+  console.log("  - 0 = Skip this show (don't enter lottery)");
+  console.log("  - 1 = Enter lottery for 1 ticket");
+  console.log("  - 2 = Enter lottery for 2 tickets\n");
+
+  const updatedShows: LuckySeatShowConfig[] = [];
+
+  for (let i = 0; i < shows.length; i++) {
+    const show = shows[i];
+    const currentTickets = show.num_tickets ?? 2;
+    const status =
+      currentTickets > 0
+        ? `✓ (${currentTickets} ticket${currentTickets > 1 ? "s" : ""})`
+        : "✗ (disabled)";
+
+    console.log(`\n[${i + 1}/${shows.length}] ${show.name} - ${status}`);
+    const answer = await question(
+      rl,
+      "Enter number of tickets (0 to skip, 1, 2, or press Enter to keep current): "
+    );
+
+    let numTickets: number;
+    if (answer.trim() === "") {
+      numTickets = currentTickets;
+      console.log(`   Keeping current: ${numTickets} ticket(s)`);
+    } else {
+      const parsed = parseInt(answer.trim(), 10);
+      if (isNaN(parsed) || parsed < 0 || parsed > 2) {
+        console.log(
+          `   ⚠️  Invalid input, keeping current: ${currentTickets} ticket(s)`
+        );
+        numTickets = currentTickets;
+      } else {
+        numTickets = parsed;
+        console.log(`   ✓ Set to: ${numTickets} ticket(s)`);
+      }
+    }
+
+    updatedShows.push({
+      ...show,
+      num_tickets: numTickets,
+    });
+  }
+
+  // Show summary
+  const enabled = updatedShows.filter((s) => (s.num_tickets || 0) > 0).length;
+  const disabled = updatedShows.filter((s) => (s.num_tickets || 0) === 0)
+    .length;
+
+  console.log("\n📊 Lucky Seat Summary:");
+  console.log(`   Total shows: ${updatedShows.length}`);
+  console.log(`   Enabled: ${enabled}`);
+  console.log(`   Disabled: ${disabled}\n`);
+
+  return updatedShows;
+}
+
+/**
  * Ask which lottery to configure
  */
 async function askLotteryType(
@@ -241,10 +345,11 @@ async function askLotteryType(
   console.log("Which lottery would you like to configure?");
   console.log("  1. Telecharge");
   console.log("  2. Broadway Direct");
-  console.log("  3. Both\n");
+  console.log("  3. Lucky Seat");
+  console.log("  4. All\n");
 
   while (true) {
-    const answer = await question(rl, "Enter choice (1, 2, or 3): ");
+    const answer = await question(rl, "Enter choice (1, 2, 3, or 4): ");
     const choice = answer.trim();
 
     if (choice === "1") {
@@ -252,9 +357,11 @@ async function askLotteryType(
     } else if (choice === "2") {
       return "broadway-direct";
     } else if (choice === "3") {
-      return "both";
+      return "luckyseat";
+    } else if (choice === "4") {
+      return "all";
     } else {
-      console.log("   ⚠️  Invalid choice. Please enter 1, 2, or 3.");
+      console.log("   ⚠️  Invalid choice. Please enter 1, 2, 3, or 4.");
     }
   }
 }
@@ -285,18 +392,23 @@ async function configureShows(): Promise<void> {
 
     let telechargeShows: TelechargeShowConfig[] = [];
     let broadwayDirectShows: BroadwayDirectShowConfig[] = [];
+    let luckySeatShows: LuckySeatShowConfig[] = [];
 
     // Configure based on selection
-    if (lotteryType === "telecharge" || lotteryType === "both") {
+    if (lotteryType === "telecharge" || lotteryType === "all") {
       telechargeShows = await configureTelechargeShows(rl);
     }
 
-    if (lotteryType === "broadway-direct" || lotteryType === "both") {
+    if (lotteryType === "broadway-direct" || lotteryType === "all") {
       broadwayDirectShows = await configureBroadwayDirectShows(rl);
     }
 
+    if (lotteryType === "luckyseat" || lotteryType === "all") {
+      luckySeatShows = await configureLuckySeatShows(rl);
+    }
+
     // Confirm and save
-    if (lotteryType === "telecharge" || lotteryType === "both") {
+    if (lotteryType === "telecharge" || lotteryType === "all") {
       if (telechargeShows.length > 0) {
         const confirm = await askConfirmSave(rl, "Telecharge");
         if (confirm) {
@@ -307,13 +419,24 @@ async function configureShows(): Promise<void> {
       }
     }
 
-    if (lotteryType === "broadway-direct" || lotteryType === "both") {
+    if (lotteryType === "broadway-direct" || lotteryType === "all") {
       if (broadwayDirectShows.length > 0) {
         const confirm = await askConfirmSave(rl, "Broadway Direct");
         if (confirm) {
           saveBroadwayDirectShows(broadwayDirectShows);
         } else {
           console.log("\n❌ Broadway Direct changes cancelled.");
+        }
+      }
+    }
+
+    if (lotteryType === "luckyseat" || lotteryType === "all") {
+      if (luckySeatShows.length > 0) {
+        const confirm = await askConfirmSave(rl, "Lucky Seat");
+        if (confirm) {
+          saveLuckySeatShows(luckySeatShows);
+        } else {
+          console.log("\n❌ Lucky Seat changes cancelled.");
         }
       }
     }

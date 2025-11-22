@@ -13,7 +13,9 @@ type EnvVarName =
   | "ZIP"
   | "COUNTRY"
   | "TELECHARGE_EMAIL"
-  | "TELECHARGE_PASSWORD";
+  | "TELECHARGE_PASSWORD"
+  | "LUCKYSEAT_EMAIL"
+  | "LUCKYSEAT_PASSWORD";
 
 function requiredString(env: Env, variableName: EnvVarName) {
   const value = env[variableName];
@@ -121,6 +123,21 @@ export function getTelechargeLogin(env: Env): TelechargeLogin {
   // Validate email format
   if (!email.includes("@")) {
     throw new Error(`Invalid Telecharge email address: ${email}`);
+  }
+
+  return {
+    email,
+    password,
+  };
+}
+
+export function getLuckySeatLogin(env: Env): TelechargeLogin {
+  const email = requiredString(env, "LUCKYSEAT_EMAIL");
+  const password = requiredString(env, "LUCKYSEAT_PASSWORD");
+
+  // Validate email format
+  if (!email.includes("@")) {
+    throw new Error(`Invalid Lucky Seat email address: ${email}`);
   }
 
   return {

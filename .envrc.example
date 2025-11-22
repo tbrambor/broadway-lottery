@@ -19,6 +19,13 @@ export COUNTRY="USA"
 export TELECHARGE_EMAIL="your.telecharge.email@example.com"
 export TELECHARGE_PASSWORD="your_telecharge_password"
 
+# Required for Lucky Seat lottery (login credentials)
+export LUCKYSEAT_EMAIL="your.luckyseat.email@example.com"
+export LUCKYSEAT_PASSWORD="your_luckyseat_password"
+
 # Optional: Filter to specific shows (comma-separated)
 # Examples: "aladdin,wicked" or "six-ny" or leave unset to test all shows
 # export SHOWS="aladdin,wicked"
+
+# 2Captcha API key
+export CAPTCHA_API_KEY="your_2captcha_api_key"

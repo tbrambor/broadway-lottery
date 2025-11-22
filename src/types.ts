@@ -18,3 +18,9 @@ export type TelechargeLogin = {
   email: string;
   password: string;
 };
+
+export type LotteryResult = {
+  success: boolean;
+  message: string;
+  reason: "submitted" | "closed" | "failed" | "error";
+};

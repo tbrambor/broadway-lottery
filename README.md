@@ -8,10 +8,11 @@
 
 ### ✨ Features
 
-- 🎪 **Multi-Platform Support**: Works with both Broadway Direct and Telecharge lotteries
+- 🎪 **Multi-Platform Support**: Works with Broadway Direct, Telecharge, and Lucky Seat lotteries
 - 🔍 **Auto-Discovery**: Automatically finds available shows from bwayrush.com
 - ⚙️ **Easy Configuration**: Interactive tools and simple JSON files - no coding required
 - 🤖 **Fully Automated**: GitHub Actions integration for hands-off daily entries
+- 🧩 **2Captcha Integration**: Automated reCAPTCHA solving for Lucky Seat (no manual intervention)
 - 🎯 **Smart Selection**: Choose exactly which shows to enter (or skip)
 - 📊 **Comprehensive Logging**: Detailed reports of all lottery entries
 - 🔒 **Secure**: All credentials stored as GitHub Secrets
@@ -20,9 +21,7 @@
 
 - **[Broadway Direct](https://lottery.broadwaydirect.com/)** - TypeScript/Playwright implementation
 - **[Telecharge](https://www.telecharge.com/)** - TypeScript/Playwright implementation
-
-- **[Broadway Direct](https://lottery.broadwaydirect.com/)** - TypeScript/Playwright implementation
-- **[Telecharge](https://www.telecharge.com/)** - TypeScript/Playwright implementation
+- **[Lucky Seat](https://www.luckyseat.com/)** - TypeScript/Playwright implementation with 2Captcha integration
 
 Each lottery platform has its own workflow and can be enabled independently. The results of the lottery drawings are sent out via email (frequently at 3 p.m., but not always).
 
@@ -196,18 +195,27 @@ You can test the automation locally before deploying to GitHub Actions:
    10. `TELECHARGE_EMAIL` - Your Telecharge account email (example: `donald.duck@gmail.com`)
    11. `TELECHARGE_PASSWORD` - Your Telecharge account password
 
-   ⚠️ **Important:** Make sure all secrets are set, especially `TELECHARGE_EMAIL` and `TELECHARGE_PASSWORD` if you're using the Telecharge lottery. The workflow will fail with "Missing required environment variable" errors if any secrets are missing.
+   **Additional secrets required for Lucky Seat lottery:**
+
+   12. `LUCKYSEAT_EMAIL` - Your Lucky Seat account email (example: `donald.duck@gmail.com`)
+   13. `LUCKYSEAT_PASSWORD` - Your Lucky Seat account password
+   14. `CAPTCHA_API_KEY` - Your 2Captcha API key for automated reCAPTCHA solving
+
+   ⚠️ **Important:** Make sure all secrets are set for the lotteries you want to use. The workflow will fail with "Missing required environment variable" errors if any required secrets are missing.
 
 4. Go to the **Actions** tab, accept the terms and conditions, and enable the workflow(s) you want to use:
    - **BroadwayDirect Lottery** - for Broadway Direct lotteries
    - **Telecharge Lottery** - for Telecharge lotteries
+   - **Lucky Seat Lottery** - for Lucky Seat lotteries
 5. The workflows will run daily at the specified times:
    - **Broadway Direct**: 09:01 EST (14:01 UTC) - see `.github/workflows/broadway-direct-lottery.yml`
    - **Telecharge**: 12:01 AM Eastern Time (04:01 UTC) - see `.github/workflows/telecharge-lottery.yml`
+   - **Lucky Seat**: 12:01 AM Eastern Time (04:01 UTC) - see `.github/workflows/luckyseat-lottery.yml`
 6. Update show lists as needed:
    - **Broadway Direct**: Run `make discover-broadway-direct` or edit `broadway-direct/showsToEnter.json`
    - **Telecharge**: Run `make discover-telecharge` or edit `telecharge/showsToEnter.json`
-   - **Both**: Run `make discover-all` to update both at once
+   - **Lucky Seat**: Edit `luckyseat/showsToEnter.json` directly
+   - **All**: Run `make discover-all` to update Broadway Direct and Telecharge at once
 
 ### Secrets example
 
@@ -252,10 +260,11 @@ The Telecharge lottery uses TypeScript and Playwright (same as Broadway Direct).
    make configure-shows
    ```
 
-   This will ask you which lottery to configure (Telecharge, Broadway Direct, or both) and guide you through each show:
+   This will ask you which lottery to configure (Telecharge, Broadway Direct, Lucky Seat, or all) and guide you through each show:
 
    - **Telecharge**: Set number of tickets (0 = skip, 1 or 2 = enter)
    - **Broadway Direct**: Answer y/yes to enter, n/no to skip
+   - **Lucky Seat**: Set enabled status and number of tickets
 
    **Option B: Auto-discover shows from bwayrush.com:**
 
@@ -322,3 +331,92 @@ The Telecharge lottery uses TypeScript and Playwright (same as Broadway Direct).
    ```
 
 The GitHub Actions workflow will automatically run the Telecharge lottery daily at 12:01 AM Eastern Time (04:01 UTC) if enabled. Note: Due to daylight saving time, in winter (EST) it will run at 11:01 PM EST the day before, which is still acceptable as the lottery opens at midnight.
+
+## Lucky Seat Lottery Setup
+
+The Lucky Seat lottery uses TypeScript and Playwright with automated 2Captcha integration for reCAPTCHA solving. To set it up locally:
+
+1. **Install dependencies** (same as other lotteries):
+
+   ```bash
+   make setup
+   # or manually:
+   npm install
+   npx playwright install chromium
+   ```
+
+2. **Get a 2Captcha API key:**
+
+   Lucky Seat uses reCAPTCHA which requires automated solving for GitHub Actions. Sign up at [2Captcha](https://2captcha.com/) and get your API key.
+
+   - Create an account at https://2captcha.com/
+   - Add funds to your account (pricing is very affordable, ~$3 per 1000 CAPTCHAs)
+   - Get your API key from the dashboard
+
+3. **Configure shows:**
+
+   **Option A: Edit the file directly:**
+
+   Edit `luckyseat/showsToEnter.json` to control which shows to enter:
+
+   ```json
+   [
+     {
+       "name": "Hadestown",
+       "enabled": true,
+       "num_tickets": 2
+     },
+     {
+       "name": "Hamilton",
+       "enabled": false,
+       "num_tickets": 2
+     }
+   ]
+   ```
+
+   - Set `enabled: false` to skip a show
+   - Set `enabled: true` to enter a show
+   - Set `num_tickets` to `1` or `2` (defaults to `NUMBER_OF_TICKETS` if not specified)
+
+4. **Set environment variables:**
+
+   ```bash
+   # Required for Lucky Seat lottery (login credentials)
+   export LUCKYSEAT_EMAIL="your.luckyseat.email@example.com"
+   export LUCKYSEAT_PASSWORD="your_luckyseat_password"
+   
+   # Required for automated CAPTCHA solving
+   export CAPTCHA_API_KEY="your_2captcha_api_key"
+   ```
+
+5. **Run the lottery:**
+
+   ```bash
+   # With browser visible (recommended for debugging)
+   make luckyseat
+   # or
+   npx playwright test e2e/luckyseat.spec.ts
+
+   # In headless mode
+   make luckyseat-headless
+   # or
+   CI=true npx playwright test e2e/luckyseat.spec.ts
+
+   # Filter to specific shows
+   SHOWS=Hadestown make luckyseat
+   
+   # Keep browser open after completion (useful for debugging)
+   make luckyseat KEEP_BROWSER_OPEN=true
+   ```
+
+6. **GitHub Actions setup:**
+
+   Add these additional secrets to your repository:
+
+   - `LUCKYSEAT_EMAIL` - Your Lucky Seat account email
+   - `LUCKYSEAT_PASSWORD` - Your Lucky Seat account password
+   - `CAPTCHA_API_KEY` - Your 2Captcha API key
+
+   The workflow will run automatically at the configured time. The 2Captcha integration ensures fully automated lottery entries without manual intervention.
+
+**Note:** The Lucky Seat lottery uses 2Captcha to automatically solve reCAPTCHA challenges. Each CAPTCHA solve costs approximately $0.003, making it very affordable for daily automation.

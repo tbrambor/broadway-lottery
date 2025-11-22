@@ -1,4 +1,4 @@
-.PHONY: help install setup broadway-direct broadway-direct-headed broadway-direct-headless broadway-direct-ui broadway-direct-debug broadway-direct-report telecharge telecharge-headed telecharge-headless discover-telecharge
+.PHONY: help install setup broadway-direct broadway-direct-headed broadway-direct-headless broadway-direct-ui broadway-direct-debug broadway-direct-report telecharge telecharge-headed telecharge-headless discover-telecharge luckyseat luckyseat-headed luckyseat-headless
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -40,6 +40,12 @@ setup: install ## Set up the project (install deps and browsers)
 	@echo "   Edit telecharge/showsToEnter.json with your shows"
 	@echo "   Run 'make telecharge' to enter lotteries with browser visible"
 	@echo "   or 'make telecharge-headless' to run in headless mode"
+	@echo ""
+	@echo "4. For Lucky Seat lottery:"
+	@echo "   Set LUCKYSEAT_EMAIL, LUCKYSEAT_PASSWORD, and CAPTCHA_API_KEY"
+	@echo "   Edit luckyseat/showsToEnter.json with your shows"
+	@echo "   Run 'make luckyseat' to enter lotteries with browser visible"
+	@echo "   or 'make luckyseat-headless' to run in headless mode"
 
 broadway-direct: broadway-direct-headed ## Run Broadway Direct lottery with browser visible (default)
 
@@ -133,6 +139,63 @@ telecharge-headless: ## Run Telecharge lottery in headless mode. Use SHOWS=show1
 		CI=true SHOWS=$(SHOWS) npx playwright test e2e/telecharge.spec.ts; \
 	fi
 
+luckyseat: luckyseat-headed ## Run Lucky Seat lottery with browser visible (default)
+
+luckyseat-headed: ## Run Lucky Seat lottery with browser visible. Use SHOWS=show1,show2 to filter shows. Use KEEP_BROWSER_OPEN=true to keep browser open
+	@if [ -n "$(SHOWS)" ]; then \
+		echo "🎭 Running Lucky Seat lottery in headed mode (filtered to: $(SHOWS))..."; \
+	else \
+		echo "🎭 Running Lucky Seat lottery in headed mode (browser will be visible)..."; \
+	fi
+	@if [ "$(KEEP_BROWSER_OPEN)" = "true" ]; then \
+		echo "🔍 Browser will stay open after completion. Press Ctrl+C to close."; \
+	fi
+	@echo ""
+	@if [ -f .envrc ]; then \
+		set -a && . .envrc && set +a && SHOWS=$(SHOWS) KEEP_BROWSER_OPEN=$(KEEP_BROWSER_OPEN) npx playwright test e2e/luckyseat.spec.ts; \
+	else \
+		SHOWS=$(SHOWS) KEEP_BROWSER_OPEN=$(KEEP_BROWSER_OPEN) npx playwright test e2e/luckyseat.spec.ts; \
+	fi
+
+luckyseat-headless: ## Run Lucky Seat lottery in headless mode. Use SHOWS=show1,show2 to filter shows
+	@if [ -n "$(SHOWS)" ]; then \
+		echo "🎭 Running Lucky Seat lottery in headless mode (filtered to: $(SHOWS))..."; \
+	else \
+		echo "🎭 Running Lucky Seat lottery in headless mode..."; \
+	fi
+	@echo ""
+	@if [ -f .envrc ]; then \
+		set -a && . .envrc && set +a && CI=true SHOWS=$(SHOWS) npx playwright test e2e/luckyseat.spec.ts; \
+	else \
+		CI=true SHOWS=$(SHOWS) npx playwright test e2e/luckyseat.spec.ts; \
+	fi
+
+luckyseat-ui: ## Run Lucky Seat lottery with Playwright UI mode (interactive). Use SHOWS=show1,show2 to filter shows
+	@if [ -n "$(SHOWS)" ]; then \
+		echo "🎭 Running Lucky Seat lottery in UI mode (filtered to: $(SHOWS))..."; \
+	else \
+		echo "🎭 Running Lucky Seat lottery in UI mode..."; \
+	fi
+	@echo ""
+	@if [ -f .envrc ]; then \
+		set -a && . .envrc && set +a && SHOWS=$(SHOWS) npx playwright test e2e/luckyseat.spec.ts --ui; \
+	else \
+		SHOWS=$(SHOWS) npx playwright test e2e/luckyseat.spec.ts --ui; \
+	fi
+
+luckyseat-debug: ## Run Lucky Seat lottery in debug mode (step through). Use SHOWS=show1,show2 to filter shows
+	@if [ -n "$(SHOWS)" ]; then \
+		echo "🎭 Running Lucky Seat lottery in debug mode (filtered to: $(SHOWS))..."; \
+	else \
+		echo "🎭 Running Lucky Seat lottery in debug mode..."; \
+	fi
+	@echo ""
+	@if [ -f .envrc ]; then \
+		set -a && . .envrc && set +a && SHOWS=$(SHOWS) npx playwright test e2e/luckyseat.spec.ts --debug; \
+	else \
+		SHOWS=$(SHOWS) npx playwright test e2e/luckyseat.spec.ts --debug; \
+	fi
+
 discover-telecharge: ## Discover Telecharge lottery shows from bwayrush.com and update showsToEnter.json (preserves user preferences)
 	@echo "🔍 Discovering Telecharge lottery shows from bwayrush.com..."
 	@echo ""
@@ -143,7 +206,12 @@ discover-broadway-direct: ## Discover Broadway Direct lottery shows from bwayrus
 	@echo ""
 	@npx tsx src/discover-broadway-direct-shows.ts || (echo "⚠️  tsx not found. Installing..." && npm install --save-dev tsx && npx tsx src/discover-broadway-direct-shows.ts)
 
-discover-all: ## Discover shows for both Telecharge and Broadway Direct from bwayrush.com
+discover-luckyseat: ## Discover Lucky Seat lottery shows from bwayrush.com and update showsToEnter.json (preserves user preferences)
+	@echo "🔍 Discovering Lucky Seat lottery shows from bwayrush.com..."
+	@echo ""
+	@npx tsx src/discover-luckyseat-shows.ts || (echo "⚠️  tsx not found. Installing..." && npm install --save-dev tsx && npx tsx src/discover-luckyseat-shows.ts)
+
+discover-all: ## Discover shows for all lotteries (Telecharge, Broadway Direct, Lucky Seat) from bwayrush.com
 	@echo "🔍 Discovering all lottery shows from bwayrush.com..."
 	@echo ""
 	@echo "=== Telecharge Shows ==="
@@ -152,9 +220,12 @@ discover-all: ## Discover shows for both Telecharge and Broadway Direct from bwa
 	@echo "=== Broadway Direct Shows ==="
 	@make discover-broadway-direct
 	@echo ""
+	@echo "=== Lucky Seat Shows ==="
+	@make discover-luckyseat
+	@echo ""
 	@echo "✅ Discovery complete!"
 
-configure-shows: ## Interactive tool to configure which shows to enter (supports both Telecharge and Broadway Direct)
+configure-shows: ## Interactive tool to configure which shows to enter (supports Telecharge, Broadway Direct, and Lucky Seat)
 	@echo "🎭 Interactive Show Configuration"
 	@echo ""
 	@npx tsx scripts/configure-shows.ts || (echo "⚠️  tsx not found. Installing..." && npm install --save-dev tsx && npx tsx scripts/configure-shows.ts)

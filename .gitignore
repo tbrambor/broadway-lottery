@@ -9,3 +9,6 @@ RENAMING.md
 .env
 .env.local
 .envrc
+
+# Debug files
+debug_*.html
